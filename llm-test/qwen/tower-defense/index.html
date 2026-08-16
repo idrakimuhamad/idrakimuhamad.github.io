@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gridlock Defense</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏰</text></svg>" />
+  <script type="module" crossorigin src="/llm-test/qwen/tower-defense/assets/index-BuPvrzig.js"></script>
+  <link rel="stylesheet" crossorigin href="/llm-test/qwen/tower-defense/assets/index-EVGTUr0j.css">
+</head>
+<body>
+  <div id="app">
+    <div id="game-wrap">
+      <div id="canvas-holder">
+        <canvas id="game" width="960" height="640"></canvas>
+      </div>
+
+      <!-- Top HUD -->
+      <div id="hud-top" class="hidden">
+        <div class="hud-chip" id="chip-hp"><span class="chip-icon">🛡️</span><span id="hud-hp">20</span></div>
+        <div class="hud-chip" id="chip-money"><span class="chip-icon">💰</span><span id="hud-money">250</span></div>
+        <div class="hud-chip" id="chip-wave"><span class="chip-icon">🌊</span><span id="hud-wave">0 / 20</span></div>
+        <div class="hud-chip" id="chip-enemies"><span class="chip-icon">👾</span><span id="hud-enemies">0</span></div>
+        <div class="hud-chip" id="chip-score"><span class="chip-icon">⭐</span><span id="hud-score">0</span></div>
+        <div class="hud-chip" id="chip-timer"><span class="chip-icon">⏱️</span><span id="hud-timer">–</span></div>
+        <div class="hud-spacer"></div>
+        <button id="btn-startwave" class="btn btn-primary" title="Start the next wave early for a bonus">▶ Start Wave</button>
+        <button id="btn-pause" class="btn" title="Pause / Resume (Space)">⏸</button>
+        <div class="speed-group">
+          <button id="btn-s1" class="btn btn-speed" title="1x speed (1)">1×</button>
+          <button id="btn-s2" class="btn btn-speed" title="2x speed (2)">2×</button>
+          <button id="btn-s3" class="btn btn-speed" title="4x speed (3)">4×</button>
+        </div>
+        <button id="btn-debug" class="btn" title="Debug mode (D)">🐞</button>
+        <button id="btn-settings" class="btn" title="Settings">⚙️</button>
+      </div>
+
+      <!-- Build bar -->
+      <div id="build-bar" class="hidden"></div>
+
+      <!-- Tower info panel -->
+      <div id="tower-panel" class="hidden">
+        <div class="tp-header">
+          <span id="tp-name">Tower</span>
+          <button id="tp-close" class="btn btn-small">✕</button>
+        </div>
+        <div id="tp-level" class="tp-level">Level 1</div>
+        <div class="tp-stats" id="tp-stats"></div>
+        <div class="tp-section">Targeting</div>
+        <div class="tp-targeting" id="tp-targeting"></div>
+        <div class="tp-section">Tower stats</div>
+        <div class="tp-stats" id="tp-tstats"></div>
+        <div class="tp-actions">
+          <button id="tp-upgrade" class="btn btn-primary">Upgrade</button>
+          <button id="tp-sell" class="btn btn-danger">Sell</button>
+        </div>
+      </div>
+
+      <!-- Toast -->
+      <div id="toast" class="hidden"></div>
+
+      <!-- Debug panel -->
+      <div id="debug-panel" class="hidden">
+        <div class="dp-title">DEBUG</div>
+        <div id="dp-stats"></div>
+        <div class="dp-section">Tools</div>
+        <button id="dp-money" class="btn btn-small">+ $500</button>
+        <div class="dp-row">
+          <select id="dp-spawn-type"></select>
+          <button id="dp-spawn" class="btn btn-small">Spawn</button>
+        </div>
+        <button id="dp-skipwave" class="btn btn-small">Skip to next wave</button>
+        <button id="dp-damage" class="btn btn-small">Base -10 HP</button>
+        <button id="dp-clear" class="btn btn-small">Clear enemies</button>
+      </div>
+    </div>
+
+    <!-- Main menu -->
+    <div id="menu-main">
+      <div class="menu-card">
+        <h1>GRIDLOCK<br/>DEFENSE</h1>
+        <p class="menu-sub">Dynamic pathfinding tower defense</p>
+        <div class="menu-diff">
+          <div class="menu-label">Difficulty</div>
+          <div class="diff-group">
+            <button class="btn diff-btn" data-diff="easy">Easy</button>
+            <button class="btn diff-btn" data-diff="normal">Normal</button>
+            <button class="btn diff-btn" data-diff="hard">Hard</button>
+          </div>
+        </div>
+        <button id="menu-start" class="btn btn-primary btn-big">Start Game</button>
+        <div class="menu-row">
+          <button id="menu-help" class="btn">Instructions</button>
+          <button id="menu-settings" class="btn">Settings</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pause menu -->
+    <div id="menu-pause" class="overlay hidden">
+      <div class="menu-card">
+        <h2>Paused</h2>
+        <button id="pause-resume" class="btn btn-primary btn-big">Resume</button>
+        <div class="menu-row">
+          <button id="pause-settings" class="btn">Settings</button>
+          <button id="pause-menu" class="btn">Main Menu</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- End screen (victory / game over) -->
+    <div id="menu-end" class="overlay hidden">
+      <div class="menu-card">
+        <h2 id="end-title">Victory!</h2>
+        <p id="end-sub" class="menu-sub"></p>
+        <div id="end-stats" class="end-stats"></div>
+        <div class="menu-row">
+          <button id="end-restart" class="btn btn-primary">Restart</button>
+          <button id="end-menu" class="btn">Main Menu</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings modal -->
+    <div id="modal-settings" class="overlay hidden">
+      <div class="menu-card modal-card">
+        <div class="tp-header"><h2>Settings</h2><button id="settings-close" class="btn btn-small">✕</button></div>
+        <div id="settings-body"></div>
+      </div>
+    </div>
+
+    <!-- Help modal -->
+    <div id="modal-help" class="overlay hidden">
+      <div class="menu-card modal-card">
+        <div class="tp-header"><h2>Instructions</h2><button id="help-close" class="btn btn-small">✕</button></div>
+        <div class="help-body">
+          <p><b>Goal:</b> Stop enemies from reaching your base. Survive all 20 waves.</p>
+          <p><b>Paths are dynamic:</b> Enemies use A* pathfinding. There is no fixed road — towers you build change the route. You can never fully block the path; placement is rejected if it would wall off the base.</p>
+          <p><b>Building:</b> Pick a tower from the bottom bar, then left-click a grass tile. Right-click or Esc cancels. Hover shows range and validity.</p>
+          <p><b>Towers:</b> Click a placed tower to upgrade it (3 upgrades), change targeting (First / Last / Closest / Strongest / Weakest), or sell it for 70% of invested money.</p>
+          <p><b>Economy:</b> Earn money from kills, wave bonuses, and starting waves early. Spend on towers and upgrades.</p>
+          <p><b>Controls:</b> Left click place/select · Right click cancel · Space pause · 1/2/3 speed · D debug · Esc close/cancel.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
