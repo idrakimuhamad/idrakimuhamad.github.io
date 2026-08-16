@@ -1,0 +1,403 @@
+/* ============================================================
+   Cloth Physics Sandbox — styles
+   Clean, modern, neutral. Panel overlays the canvas on desktop
+   and collapses to a drawer on small screens.
+   ============================================================ */
+
+:root {
+  --bg: #0f1115;
+  --panel-bg: rgba(20, 23, 30, 0.86);
+  --panel-bg-solid: #14171e;
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --text: #e7e9ee;
+  --text-dim: #9aa1ad;
+  --text-faint: #6b7280;
+  --accent: #4f8cff;
+  --accent-soft: rgba(79, 140, 255, 0.16);
+  --danger: #ff5c5c;
+  --ok: #3ecf8e;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+  --mono: ui-monospace, "SF Mono", "Cascadia Code", "Consolas", monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#app { position: fixed; inset: 0; }
+
+/* ---- WebGL canvas fills the viewport ---- */
+#gl {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none; /* we handle pointer gestures ourselves */
+  cursor: grab;
+}
+#gl.dragging { cursor: grabbing; }
+#gl.pin-mode { cursor: crosshair; }
+
+/* ---- Performance overlay (top-left) ---- */
+.perf {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 20;
+  min-width: 168px;
+  padding: 10px 12px;
+  background: var(--panel-bg);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  pointer-events: none;
+  user-select: none;
+}
+.perf-row { display: flex; justify-content: space-between; gap: 16px; }
+.perf .k { color: var(--text-faint); }
+.perf .v { color: var(--text); font-variant-numeric: tabular-nums; }
+.perf .v.good { color: var(--ok); }
+.perf .v.warn { color: #ffb454; }
+.perf .v.bad { color: var(--danger); }
+
+/* ---- Help hint (bottom-left) ---- */
+.help {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  max-width: 60vw;
+  padding: 8px 12px;
+  background: var(--panel-bg);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-dim);
+  pointer-events: none;
+  user-select: none;
+}
+.help b { color: var(--text); font-weight: 600; }
+
+/* ---- Panel toggle button (mobile) ---- */
+.panel-toggle {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 40;
+  width: 44px;
+  height: 44px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-bg);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: var(--shadow);
+}
+.panel-toggle:active { transform: scale(0.96); }
+
+/* ---- Control panel (right side) ---- */
+.panel {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  bottom: 14px;
+  z-index: 30;
+  width: 320px;
+  max-width: calc(100vw - 28px);
+  display: flex;
+  background: var(--panel-bg);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.panel-inner {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px 16px 28px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.18) transparent;
+}
+.panel-inner::-webkit-scrollbar { width: 8px; }
+.panel-inner::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.16);
+  border-radius: 8px;
+}
+
+/* ---- Panel header ---- */
+.panel-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 2px 0 4px;
+}
+.panel-title h1 {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  margin: 0;
+}
+.panel-title .sub {
+  font-size: 11px;
+  color: var(--text-faint);
+  font-family: var(--mono);
+}
+
+/* ---- Presets ---- */
+.presets {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 14px 0 6px;
+}
+.preset-btn {
+  appearance: none;
+  border: 1px solid var(--panel-border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: 9px 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.05s;
+  text-align: left;
+  line-height: 1.2;
+}
+.preset-btn small {
+  display: block;
+  font-weight: 400;
+  color: var(--text-faint);
+  font-size: 10.5px;
+  margin-top: 2px;
+}
+.preset-btn:hover { background: rgba(255, 255, 255, 0.07); }
+.preset-btn:active { transform: scale(0.98); }
+.preset-btn.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: #fff;
+}
+.preset-btn.active small { color: rgba(255,255,255,0.7); }
+
+/* ---- Sections ---- */
+.section {
+  margin-top: 18px;
+  border-top: 1px solid var(--panel-border);
+  padding-top: 14px;
+}
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.section-head h2 {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-dim);
+  margin: 0;
+}
+.section-head .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.7;
+}
+
+/* ---- Control rows ---- */
+.ctrl { margin-bottom: 12px; }
+.ctrl:last-child { margin-bottom: 0; }
+.ctrl-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  gap: 10px;
+}
+.ctrl-row label {
+  font-size: 12.5px;
+  color: var(--text);
+  flex: 1;
+}
+.ctrl-row .val {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 2px 7px;
+  border-radius: 6px;
+  min-width: 42px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ---- Range sliders ---- */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.14);
+  outline: none;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 15px; height: 15px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+  transition: transform 0.1s;
+}
+input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.15); }
+input[type="range"]::-moz-range-thumb {
+  width: 15px; height: 15px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid #fff;
+  cursor: pointer;
+}
+input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ---- Toggle switch ---- */
+.switch {
+  position: relative;
+  width: 38px; height: 22px;
+  flex: none;
+}
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch .track {
+  position: absolute; inset: 0;
+  background: rgba(255,255,255,0.16);
+  border-radius: 22px;
+  transition: background 0.18s;
+}
+.switch .track::before {
+  content: "";
+  position: absolute;
+  width: 16px; height: 16px;
+  left: 3px; top: 3px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.18s;
+}
+.switch input:checked + .track { background: var(--accent); }
+.switch input:checked + .track::before { transform: translateX(16px); }
+
+/* ---- Buttons ---- */
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn {
+  appearance: none;
+  border: 1px solid var(--panel-border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.05s;
+  flex: 1;
+  min-width: 0;
+}
+.btn:hover { background: rgba(255, 255, 255, 0.09); }
+.btn:active { transform: scale(0.97); }
+.btn.primary { background: var(--accent-soft); border-color: var(--accent); color: #fff; }
+.btn.danger { border-color: rgba(255, 92, 92, 0.5); color: #ff8585; }
+.btn.danger:hover { background: rgba(255, 92, 92, 0.12); }
+.btn.active { background: var(--accent-soft); border-color: var(--accent); color: #fff; }
+.btn.toggled { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* segmented control for pin mode */
+.seg {
+  display: flex;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  gap: 3px;
+}
+.seg button {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  flex: 1;
+  transition: background 0.15s, color 0.15s;
+}
+.seg button.active { background: var(--accent); color: #fff; }
+
+/* ---- Footer ---- */
+.panel-foot {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid var(--panel-border);
+  font-size: 11px;
+  color: var(--text-faint);
+  line-height: 1.6;
+  text-align: center;
+}
+.panel-foot a { color: var(--accent); text-decoration: none; }
+
+/* ============================================================
+   Responsive: on narrow screens the panel becomes a drawer.
+   ============================================================ */
+@media (max-width: 720px) {
+  .panel-toggle { display: flex; }
+
+  .panel {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(340px, 88vw);
+    border-radius: 0;
+    transform: translateX(105%);
+    transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .panel.open { transform: translateX(0); }
+
+  .perf { min-width: 150px; font-size: 11px; }
+  .help { display: none; }
+}
