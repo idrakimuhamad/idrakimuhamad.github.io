@@ -1,6 +1,8 @@
-# Deploy convention for this repo: site folders hold built output only.
-# Keep the whole last-bastion folder out of git except the production build.
+# Deploy convention (same as sibling projects): this folder holds the BUILT site
+# at its root — index.html + assets/ — and nothing else from the source tree.
+# After `npm run build`, re-copy dist/index.html + dist/assets/ here, then commit.
 *
 !.gitignore
-!dist/
-!dist/**
+!index.html
+!assets/
+!assets/**
