@@ -1,0 +1,6 @@
+# Deploy convention for this repo: site folders hold built output only.
+# Keep the whole last-bastion folder out of git except the production build.
+*
+!.gitignore
+!dist/
+!dist/**
