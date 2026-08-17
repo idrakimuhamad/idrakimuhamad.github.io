@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dino Runner — Sunset Endless Run</title>
+<style>
+  html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#241a4e;}
+  #game{display:block;width:100vw;height:100vh;user-select:none;-webkit-user-select:none;touch-action:none;}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<noscript><p style="color:#fff;font-family:sans-serif;padding:2em">This game requires JavaScript.</p></noscript>
+<script>
+"use strict";
+/* ============================================================
+   DINO RUNNER — a single-file, dependency-free endless runner.
+   The dino stays put (foreground) while every world layer
+   scrolls LEFT (x -= speed * factor * dt) to sell the illusion
+   that he is running to the right into the sunset.
+   ============================================================ */
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp  = (a, b, t) => a + (b - a) * t;
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function rr(c,x,y,w,h,r){ r=Math.min(r,w/2,h/2); c.beginPath(); c.moveTo(x+r,y); c.arcTo(x+w,y,x+w,y+h,r); c.arcTo(x+w,y+h,x,y+h,r); c.arcTo(x,y+h,x,y,r); c.arcTo(x,y,x+w,y,r); c.closePath(); }
+
+/* ---------------- canvas / responsive sizing ---------------- */
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+let dpr = 1, W = 0, H = 0, S = 1, Wd = 0;
+const DH = 540;              // design height (world units)
+const GROUND = 430;          // y of the running surface
+const dino = { x: 120, y: GROUND, vy: 0, onGround: true, phase: 0, duckAmt: 0, tuck: 0, jumpBuf: 0, squashT: 0, dustT: 0 };
+function resize(){
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width  = Math.max(1, Math.round(W * dpr));
+  canvas.height = Math.max(1, Math.round(H * dpr));
+  S = H / DH; Wd = W / S;
+  dino.x = clamp(Wd * 0.18, 80, Wd * 0.35);
+}
+window.addEventListener('resize', resize);
+
+/* ---------------- physics / difficulty constants ---------------- */
+const GRAV = 2200, JUMP_V = 800, FASTFALL = 2.3;
+const SPEED0 = 340, SPEED1 = 720, SCORE_MAX = 4200;
+
+/* ---------------- game state ---------------- */
+let state = 'ready';         // ready | running | dying | gameover
+let t = 0, lastT = performance.now();
+let distance = 0, bonus = 0, speed = SPEED0;
+let shake = 0, flash = 0, dieT = 0, hintT = 0;
+let best = 0;
+try { best = parseInt(localStorage.getItem('dinoRunnerBest') || '0', 10) || 0; } catch(e){}
+const obstacles = [], particles = [], floats = [];
+
+/* ---------------- scenery (seeded => varied, no obvious tiling) ---------------- */
+const M_SEG = 48, M_N = 50;                       // mountains: span 2400
+const mRnd = mulberry32(1234);
+const mPts = []; { let mh = 120; for (let i = 0; i < M_N; i++){ mh = clamp(mh + (mRnd() - 0.5) * 46, 55, 185); mPts.push(mh); } mPts[M_N - 1] = mPts[0]; }
+const H_SEG = 40, H_N = 45;                       // hills: span 1800
+const hRnd = mulberry32(777);
+const hPts = []; { let hh = 50; for (let i = 0; i < H_N; i++){ hh = clamp(hh + (hRnd() - 0.5) * 30, 22, 78); hPts.push(hh); } hPts[H_N - 1] = hPts[0]; }
+const T_SPAN = 1500;                              // trees
+const tRnd = mulberry32(4242);
+const trees = []; { let tx = 20; while (tx < T_SPAN){ trees.push({ x: tx, type: tRnd() < 0.55 ? 0 : 1, s: 0.65 + tRnd() * 0.95 }); tx += 55 + tRnd() * 115; } }
+const R_SPAN = 1200;                              // roadside objects
+const rRnd = mulberry32(9999);
+const roadside = []; { let rx = 10; while (rx < R_SPAN){ const r = rRnd(); roadside.push({ x: rx, type: r < 0.3 ? 0 : r < 0.55 ? 1 : r < 0.8 ? 2 : r < 0.92 ? 3 : 4, s: 0.6 + rRnd() * 0.9 }); rx += 48 + rRnd() * 120; } }
+const G_SPAN = 1000;                              // ground details
+const gRnd = mulberry32(31337);
+const pebbles = []; for (let i = 0; i < 42; i++) pebbles.push({ x: gRnd() * G_SPAN, y: 442 + gRnd() * 92, r: 1.2 + gRnd() * 2.6, d: gRnd() < 0.5 });
+const gGrass = []; for (let i = 0; i < 24; i++) gGrass.push({ x: gRnd() * G_SPAN, s: 0.7 + gRnd() * 0.8 });
+const clouds = []; { const cRnd = mulberry32(555); for (let i = 0; i < 9; i++) clouds.push({ x: cRnd() * 2200, y: 26 + cRnd() * 135, s: 0.55 + cRnd() * 1.15, f: 0.03 + cRnd() * 0.05, near: i < 4 }); }
+const birds = []; for (let i = 0; i < 5; i++) birds.push({ x: Math.random() * 1800, y: 90 + Math.random() * 130, f: 0.12 + Math.random() * 0.08, ph: Math.random() * 7, s: 5 + Math.random() * 4 });
+
+/* ---------------- audio (tiny WebAudio blips, optional) ---------------- */
+let actx = null, muted = false;
+function audioInit(){
+  if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){} }
+  if (actx && actx.state === 'suspended') actx.resume();
+}
+function sfx(kind){
+  if (muted || !actx) return;
+  const now = actx.currentTime;
+  const o = actx.createOscillator(), g = actx.createGain();
+  let f0 = 440, f1 = 440, dur = 0.15, type = 'sine', vol = 0.04;
+  if (kind === 'jump')        { f0 = 320; f1 = 640;  dur = 0.18; type = 'triangle'; vol = 0.05; }
+  else if (kind === 'land')   { f0 = 190; f1 = 120;  dur = 0.07; type = 'triangle'; vol = 0.04; }
+  else if (kind === 'crash')  { f0 = 220; f1 = 50;   dur = 0.5;  type = 'sawtooth'; vol = 0.09; }
+  else if (kind === 'bonus')  { f0 = 720; f1 = 1080; dur = 0.1;  type = 'sine';     vol = 0.03; }
+  o.type = type;
+  o.frequency.setValueAtTime(f0, now);
+  o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), now + dur);
+  g.gain.setValueAtTime(vol, now);
+  g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+  o.connect(g); g.connect(actx.destination);
+  o.start(now); o.stop(now + dur + 0.02);
+}
+
+/* ---------------- input ---------------- */
+const keys = { up: false, down: false };
+function doJump(){ dino.vy = -JUMP_V; dino.onGround = false; dino.jumpBuf = 0; sfx('jump'); spawnDust(dino.x - 6, GROUND, 6, 60); }
+function onLand(){ dino.squashT = 0.14; sfx('land'); spawnDust(dino.x - 4, GROUND, 8, 80); }
+function pressJump(){
+  audioInit();
+  if (state === 'ready' || state === 'gameover') { reset(); return; }
+  if (state !== 'running') return;
+  if (dino.onGround) doJump(); else dino.jumpBuf = 0.12;   // jump buffering
+}
+window.addEventListener('keydown', e => {
+  const c = e.code;
+  if (c === 'ArrowUp' || c === 'ArrowDown' || c === 'ArrowLeft' || c === 'ArrowRight' || c === 'Space' || c === 'Enter') e.preventDefault();
+  if (c === 'ArrowUp' || c === 'KeyW')        { if (!e.repeat) pressJump(); keys.up = true; }
+  else if (c === 'ArrowDown' || c === 'KeyS') { keys.down = true; }
+  else if (c === 'Space' || c === 'Enter')    { if (!e.repeat) { audioInit(); if (state === 'ready' || state === 'gameover') reset(); } }
+  else if (c === 'KeyM')                      { muted = !muted; }
+});
+window.addEventListener('keyup', e => {
+  const c = e.code;
+  if (c === 'ArrowUp' || c === 'KeyW')  { keys.up = false; if (dino.vy < -JUMP_V * 0.32) dino.vy = -JUMP_V * 0.32; }  // variable jump height
+  else if (c === 'ArrowDown' || c === 'KeyS') { keys.down = false; }
+});
+window.addEventListener('blur', () => { keys.up = false; keys.down = false; });
+
+/* ---------------- score / speed / spawning ---------------- */
+function score()      { return Math.floor(distance / 10) + bonus; }
+function speedTarget(){ return SPEED0 + (SPEED1 - SPEED0) * clamp(score() / SCORE_MAX, 0, 1); }
+function diff()       { return clamp((speed - SPEED0) / (SPEED1 - SPEED0), 0, 1); }
+function gapFor(d)    { const base = lerp(1.25, 0.62, d) + Math.random() * 0.3; return speed * base + 120; }
+
+function pickPattern(d){
+  if (d < 0.1) return Math.random() < 0.75 ? 'cactusS' : 'rock';
+  const table = [['cactusS',22],['cactusT',16],['double',14],['rock',12],['log',8],['branch',14],['combo',d > 0.3 ? 14 : 0],['triple',d > 0.55 ? 10 : 0]];
+  let tot = 0; for (const e of table) tot += e[1];
+  let x = Math.random() * tot;
+  for (const e of table){ x -= e[1]; if (x <= 0) return e[0]; }
+  return 'cactusS';
+}
+function makeOb(type, x){
+  const o = { type, x, w: 22, h: 42, bonus: 25, cleared: false, nextGap: 0 };
+  if (type === 'cactusS')      { o.w = 22; o.h = 42; o.bonus = 25; }
+  else if (type === 'cactusT') { o.w = 26; o.h = 62; o.bonus = 30; }
+  else if (type === 'double')  { o.w = 58; o.h = 42; o.bonus = 40; }
+  else if (type === 'triple')  { o.w = 84; o.h = 60; o.bonus = 60; }
+  else if (type === 'rock')    { o.w = 42; o.h = 30; o.bonus = 25; }
+  else if (type === 'log')     { o.w = 56; o.h = 24; o.bonus = 30; }
+  else if (type === 'branch')  { o.w = 92; o.h = 34; o.bonus = 45; }
+  o.nextGap = gapFor(diff());
+  return o;
+}
+function spawnAt(x){
+  const p = pickPattern(diff());
+  const o = makeOb(p, x);
+  obstacles.push(o);
+  if (p === 'combo') obstacles.push(makeOb('branch', x + 170 + speed * 0.55));
+}
+
+/* ---------------- particles / floating text ---------------- */
+function spawnDust(x, y, n, spread){
+  for (let i = 0; i < n; i++) particles.push({ x: x + (Math.random() - 0.5) * 8, y: y - Math.random() * 4, vx: -speed * 0.22 - Math.random() * spread, vy: -20 - Math.random() * 55, r: 1.5 + Math.random() * 2.5, life: 0.35 + Math.random() * 0.3, max: 0.65 });
+  if (particles.length > 220) particles.splice(0, particles.length - 220);
+}
+function updateParticles(dt){
+  for (let i = particles.length - 1; i >= 0; i--){
+    const p = particles[i]; p.life -= dt;
+    if (p.life <= 0) { particles.splice(i, 1); continue; }
+    p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 260 * dt;
+    if (p.y > GROUND + 2) { p.y = GROUND + 2; p.vy *= -0.3; }
+  }
+}
+function updateFloats(dt){
+  for (let i = floats.length - 1; i >= 0; i--){ const f = floats[i]; f.life -= dt; f.y -= 42 * dt; if (f.life <= 0) floats.splice(i, 1); }
+}
+function runningDust(dt){
+  if (!dino.onGround) return;
+  dino.dustT -= dt;
+  if (dino.dustT <= 0){ dino.dustT = 0.09; spawnDust(dino.x - 12, GROUND - 2, 1, 40); }
+}
+
+/* ---------------- collisions / life ---------------- */
+function dinoHitbox(){
+  const k = dino.duckAmt;
+  return { l: dino.x - lerp(16, 22, k), r: dino.x + lerp(32, 34, k), t: dino.y - lerp(58, 32, k), b: dino.y - 2 };
+}
+function obsHitbox(o){
+  if (o.type === 'branch') return { l: o.x + 4, r: o.x + o.w - 4, t: GROUND - 152, b: GROUND - 48 };
+  return { l: o.x + 3, r: o.x + o.w - 3, t: GROUND - o.h + 3, b: GROUND };
+}
+function checkCollision(){
+  const h = dinoHitbox();
+  for (const o of obstacles){
+    const b = obsHitbox(o);
+    if (h.l < b.r && h.r > b.l && h.t < b.b && h.b > b.t) { die(); return; }
+  }
+}
+function die(){
+  if (state !== 'running') return;
+  state = 'dying'; dieT = 0; shake = 1; flash = 0.55; sfx('crash');
+  spawnDust(dino.x, dino.y - 20, 18, 160);
+  if (score() > best) { best = score(); try { localStorage.setItem('dinoRunnerBest', String(best)); } catch(e){} }
+}
+function reset(){
+  obstacles.length = 0; particles.length = 0; floats.length = 0;
+  distance = 0; bonus = 0; speed = SPEED0; shake = 0; flash = 0; dieT = 0;
+  dino.y = GROUND; dino.vy = 0; dino.onGround = true; dino.duckAmt = 0; dino.tuck = 0; dino.jumpBuf = 0; dino.squashT = 0; dino.phase = 0;
+  state = 'running'; hintT = 6;
+}
+
+/* ---------------- update ---------------- */
+function updateClouds(dt){ for (const c of clouds){ c.x -= (speed * c.f + 6) * dt; if (c.x < -280){ c.x = Wd + 220 + Math.random() * 160; c.y = 26 + Math.random() * 135; c.s = 0.55 + Math.random() * 1.15; } } }
+function updateBirds(dt){ for (const b of birds){ b.x -= (speed * b.f + 26) * dt; b.y += Math.sin(t * 1.3 + b.ph) * 10 * dt; b.y = clamp(b.y, 60, 240); if (b.x < -70){ b.x = Wd + 90; b.y = 90 + Math.random() * 130; } } }
+function updateObstacles(dt){
+  for (const o of obstacles) o.x -= speed * dt;
+  for (let i = obstacles.length - 1; i >= 0; i--) if (obstacles[i].x + obstacles[i].w < -100) obstacles.splice(i, 1);
+  const dl = dino.x - 16;
+  for (const o of obstacles){
+    if (!o.cleared && o.x + o.w < dl){ o.cleared = true; bonus += o.bonus; floats.push({ x: dino.x + 8, y: dino.y - 78, txt: '+' + o.bonus, life: 0.9 }); sfx('bonus'); }
+  }
+  if (state !== 'running') return;
+  if (obstacles.length === 0){ if (distance > 420) spawnAt(Wd + 120); }
+  else {
+    const last = obstacles[obstacles.length - 1];
+    if (last.x <= Wd + 120 - last.nextGap) spawnAt(last.x + last.nextGap);
+  }
+}
+function update(dt){
+  t += dt;
+  if (hintT > 0) hintT -= dt;
+  if (state === 'ready'){
+    speed += (140 - speed) * Math.min(1, dt * 0.8);
+    distance += speed * dt;
+    dino.phase += dt * (5 + speed * 0.014);
+    updateClouds(dt); updateBirds(dt); runningDust(dt); updateParticles(dt); updateFloats(dt);
+    return;
+  }
+  if (state === 'dying'){
+    dieT += dt;
+    speed = Math.max(0, speed - 750 * dt);   // deceleration after impact
+    distance += speed * dt;
+    if (!dino.onGround){ dino.vy += GRAV * dt; dino.y += dino.vy * dt; if (dino.y >= GROUND){ dino.y = GROUND; dino.vy = 0; dino.onGround = true; } }
+    updateClouds(dt); updateBirds(dt); updateObstacles(dt); updateParticles(dt); updateFloats(dt);
+    shake = Math.max(0, shake - dt * 1.6); flash = Math.max(0, flash - dt * 1.4);
+    if (dieT > 1.15) state = 'gameover';
+    return;
+  }
+  if (state === 'gameover'){
+    speed = Math.max(0, speed - 300 * dt);
+    distance += speed * dt;
+    updateClouds(dt); updateBirds(dt); updateParticles(dt); updateFloats(dt);
+    shake = Math.max(0, shake - dt * 1.6); flash = Math.max(0, flash - dt * 1.4);
+    return;
+  }
+  /* running */
+  speed += (speedTarget() - speed) * Math.min(1, dt * 0.7);   // gradual acceleration
+  distance += speed * dt;
+  dino.phase += dt * (5 + speed * 0.014);
+  const wantDuck = keys.down && dino.onGround;
+  dino.duckAmt += ((wantDuck ? 1 : 0) - dino.duckAmt) * Math.min(1, dt * 14);
+  dino.tuck    += ((dino.onGround ? 0 : 1) - dino.tuck) * Math.min(1, dt * 10);
+  if (!dino.onGround){
+    let g = GRAV; if (keys.down) g *= FASTFALL;               // fast-fall while ducking in air
+    dino.vy += g * dt;
+    dino.y += dino.vy * dt;
+    if (dino.y >= GROUND){                                     // landing detection
+      dino.y = GROUND; dino.vy = 0; dino.onGround = true; onLand();
+      if (dino.jumpBuf > 0){ dino.jumpBuf = 0; doJump(); }
+    }
+  } else if (dino.jumpBuf > 0){ dino.jumpBuf -= dt; if (dino.jumpBuf > 0) doJump(); }
+  if (dino.squashT > 0) dino.squashT -= dt;
+  updateClouds(dt); updateBirds(dt); updateObstacles(dt);
+  runningDust(dt); updateParticles(dt); updateFloats(dt);
+  checkCollision();
+}
+
+/* ---------------- world drawing ---------------- */
+function drawSky(){
+  const g = ctx.createLinearGradient(0, 0, 0, 340);
+  g.addColorStop(0, '#2a1e57'); g.addColorStop(0.45, '#7b3f74'); g.addColorStop(0.75, '#d96a4e'); g.addColorStop(1, '#ffb36b');
+  ctx.fillStyle = g; ctx.fillRect(-20, -20, Wd + 40, 360);
+  const sx = Wd * 0.7, sy = 216;
+  const glow = ctx.createRadialGradient(sx, sy, 8, sx, sy, 160);
+  glow.addColorStop(0, 'rgba(255,224,150,0.9)'); glow.addColorStop(0.35, 'rgba(255,186,110,0.4)'); glow.addColorStop(1, 'rgba(255,186,110,0)');
+  ctx.fillStyle = glow; ctx.fillRect(sx - 170, sy - 170, 340, 340);
+  ctx.fillStyle = '#fff3c9'; ctx.beginPath(); ctx.arc(sx, sy, 40, 0, TAU); ctx.fill();
+  ctx.fillStyle = 'rgba(255,240,200,0.5)'; ctx.beginPath(); ctx.arc(sx, sy, 34, 0, TAU); ctx.fill();
+}
+function drawClouds(near){
+  for (const c of clouds){
+    if (c.near !== near) continue;
+    ctx.fillStyle = near ? 'rgba(255,216,192,0.5)' : 'rgba(255,198,178,0.34)';
+    const s = c.s;
+    ctx.beginPath();
+    ctx.ellipse(c.x, c.y, 46 * s, 15 * s, 0, 0, TAU);
+    ctx.ellipse(c.x - 32 * s, c.y + 5 * s, 30 * s, 11 * s, 0, 0, TAU);
+    ctx.ellipse(c.x + 34 * s, c.y + 4 * s, 32 * s, 12 * s, 0, 0, TAU);
+    ctx.ellipse(c.x + 6 * s, c.y - 9 * s, 28 * s, 12 * s, 0, 0, TAU);
+    ctx.fill();
+  }
+}
+function drawRidge(off, seg, pts, n, baseY, top, bottom){
+  const start = Math.floor(off / seg);
+  const count = Math.ceil(Wd / seg) + 2;
+  const g = ctx.createLinearGradient(0, baseY - 190, 0, baseY);
+  g.addColorStop(0, top); g.addColorStop(1, bottom);
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.moveTo(start * seg - off - seg, baseY);
+  for (let k = 0; k <= count; k++){
+    const i = ((start + k) % n + n) % n;
+    ctx.lineTo(start * seg - off + k * seg, baseY - pts[i]);
+  }
+  ctx.lineTo(start * seg - off + (count + 1) * seg, baseY);
+  ctx.closePath(); ctx.fill();
+}
+function drawMountains(){ drawRidge((distance * 0.06) % (M_N * M_SEG), M_SEG, mPts, M_N, 300, 'rgba(196,138,168,0.95)', 'rgba(125,79,125,0.98)'); }
+function drawHills()      { drawRidge((distance * 0.16) % (H_N * H_SEG), H_SEG, hPts, H_N, 336, 'rgba(118,72,112,0.98)', 'rgba(70,48,90,1)'); }
+function drawBirds(){
+  ctx.strokeStyle = 'rgba(44,31,62,0.85)'; ctx.lineWidth = 2.2; ctx.lineCap = 'round';
+  for (const b of birds){
+    const w = Math.sin(t * 9 + b.ph) * b.s * 0.8;
+    ctx.beginPath();
+    ctx.moveTo(b.x - b.s, b.y);
+    ctx.quadraticCurveTo(b.x - b.s * 0.4, b.y - w, b.x, b.y);
+    ctx.quadraticCurveTo(b.x + b.s * 0.4, b.y - w, b.x + b.s, b.y);
+    ctx.stroke();
+  }
+}
+function drawShoulder(){
+  const g = ctx.createLinearGradient(0, 336, 0, GROUND);
+  g.addColorStop(0, '#6a4458'); g.addColorStop(1, '#583a4e');
+  ctx.fillStyle = g; ctx.fillRect(-20, 336, Wd + 40, GROUND - 336);
+}
+function drawTree(sx, tr){
+  const base = 338;
+  if (tr.type === 0){
+    const h = 36 * tr.s;
+    ctx.fillStyle = '#241a38';
+    ctx.fillRect(sx - 2.5, base - h * 0.5, 5, h * 0.5);
+    ctx.fillStyle = '#33254a';
+    ctx.beginPath();
+    ctx.arc(sx, base - h * 0.78, h * 0.4, 0, TAU);
+    ctx.arc(sx - h * 0.32, base - h * 0.55, h * 0.3, 0, TAU);
+    ctx.arc(sx + h * 0.32, base - h * 0.55, h * 0.3, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,170,120,0.14)';
+    ctx.beginPath(); ctx.arc(sx - h * 0.12, base - h * 0.9, h * 0.26, 0, TAU); ctx.fill();
+  } else {
+    const h = 46 * tr.s;
+    ctx.fillStyle = '#241a38';
+    ctx.fillRect(sx - 2, base - h * 0.22, 4, h * 0.22);
+    ctx.fillStyle = '#2b2144';
+    for (let i = 0; i < 3; i++){
+      const yy = base - h * 0.14 - i * h * 0.26;
+      const ww = h * (0.34 - i * 0.08);
+      ctx.beginPath();
+      ctx.moveTo(sx - ww, yy); ctx.lineTo(sx + ww, yy); ctx.lineTo(sx, yy - h * 0.34);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+}
+function drawTrees(){
+  const off = distance * 0.3;
+  const kmax = Math.ceil(Wd / T_SPAN);
+  for (let k = 0; k <= kmax; k++)
+    for (const tr of trees){
+      const sx = tr.x - off + k * T_SPAN;
+      if (sx < -70 || sx > Wd + 70) continue;
+      drawTree(sx, tr);
+    }
+}
+function drawRoadsideItem(sx, it){
+  const base = 424, s = it.s;
+  if (it.type === 0){
+    ctx.fillStyle = '#465c3e';
+    ctx.beginPath();
+    ctx.arc(sx - 7 * s, base - 6 * s, 7 * s, 0, TAU);
+    ctx.arc(sx, base - 9 * s, 8 * s, 0, TAU);
+    ctx.arc(sx + 7 * s, base - 6 * s, 7 * s, 0, TAU);
+    ctx.fill();
+  } else if (it.type === 1){
+    ctx.fillStyle = '#6e5a4a';
+    ctx.beginPath();
+    ctx.moveTo(sx - 10 * s, base); ctx.lineTo(sx - 6 * s, base - 9 * s); ctx.lineTo(sx + 2 * s, base - 11 * s); ctx.lineTo(sx + 9 * s, base - 5 * s); ctx.lineTo(sx + 10 * s, base);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(255,220,180,0.15)';
+    ctx.beginPath(); ctx.moveTo(sx - 6 * s, base - 9 * s); ctx.lineTo(sx + 2 * s, base - 11 * s); ctx.lineTo(sx + 1 * s, base - 6 * s); ctx.closePath(); ctx.fill();
+  } else if (it.type === 2){
+    ctx.strokeStyle = 'rgba(122,138,74,0.85)'; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+    for (let i = -2; i <= 2; i++){
+      ctx.beginPath(); ctx.moveTo(sx + i * 2.4 * s, base);
+      ctx.quadraticCurveTo(sx + i * 3.4 * s, base - 6 * s, sx + i * 4.6 * s, base - (9 + (i % 2) * 3) * s);
+      ctx.stroke();
+    }
+  } else if (it.type === 3){
+    ctx.strokeStyle = '#5c7040'; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(sx, base); ctx.lineTo(sx, base - 8 * s); ctx.stroke();
+    ctx.fillStyle = '#e8a0b0'; ctx.beginPath(); ctx.arc(sx, base - 9 * s, 2.6 * s, 0, TAU); ctx.fill();
+  } else {
+    ctx.fillStyle = '#7a6a58';
+    ctx.beginPath(); ctx.ellipse(sx - 4 * s, base - 2 * s, 5 * s, 3 * s, 0, 0, TAU); ctx.ellipse(sx + 4 * s, base - 1.5 * s, 4 * s, 2.4 * s, 0, 0, TAU); ctx.fill();
+  }
+}
+function drawRoadside(){
+  const off = distance * 0.55;
+  const kmax = Math.ceil(Wd / R_SPAN);
+  for (let k = 0; k <= kmax; k++)
+    for (const it of roadside){
+      const sx = it.x - off + k * R_SPAN;
+      if (sx < -60 || sx > Wd + 60) continue;
+      drawRoadsideItem(sx, it);
+    }
+}
+function drawGround(){
+  const g = ctx.createLinearGradient(0, GROUND, 0, DH);
+  g.addColorStop(0, '#8a5a44'); g.addColorStop(1, '#5a362c');
+  ctx.fillStyle = g; ctx.fillRect(-20, GROUND, Wd + 40, DH - GROUND + 20);
+  ctx.fillStyle = 'rgba(214,150,102,0.85)';
+  ctx.fillRect(-20, GROUND, Wd + 40, 3);
+  const period = 80, on = 46;
+  const off = distance % period;
+  ctx.fillStyle = 'rgba(232,184,120,0.55)';
+  for (let x = -off - on; x < Wd + on; x += period){ rr(ctx, x, 468, on, 5, 2.5); ctx.fill(); }
+  const kmax = Math.ceil(Wd / G_SPAN);
+  for (let k = 0; k <= kmax; k++){
+    for (const p of pebbles){
+      const sx = p.x - distance + k * G_SPAN;
+      if (sx < -10 || sx > Wd + 10) continue;
+      ctx.fillStyle = p.d ? 'rgba(90,54,44,0.8)' : 'rgba(160,106,78,0.8)';
+      ctx.beginPath(); ctx.ellipse(sx, p.y, p.r, p.r * 0.7, 0, 0, TAU); ctx.fill();
+    }
+    ctx.strokeStyle = 'rgba(150,160,80,0.7)'; ctx.lineWidth = 1.4; ctx.lineCap = 'round';
+    for (const gt of gGrass){
+      const sx = gt.x - distance + k * G_SPAN;
+      if (sx < -10 || sx > Wd + 10) continue;
+      ctx.beginPath();
+      ctx.moveTo(sx, GROUND + 1); ctx.lineTo(sx - 2 * gt.s, GROUND - 5 * gt.s);
+      ctx.moveTo(sx, GROUND + 1); ctx.lineTo(sx + 1 * gt.s, GROUND - 6 * gt.s);
+      ctx.moveTo(sx, GROUND + 1); ctx.lineTo(sx + 3 * gt.s, GROUND - 4 * gt.s);
+      ctx.stroke();
+    }
+  }
+  const g2 = ctx.createLinearGradient(0, DH - 60, 0, DH);
+  g2.addColorStop(0, 'rgba(30,14,24,0)'); g2.addColorStop(1, 'rgba(30,14,24,0.45)');
+  ctx.fillStyle = g2; ctx.fillRect(-20, DH - 60, Wd + 40, 80);
+}
+function drawShadows(){
+  const hgt = clamp((GROUND - dino.y) / 150, 0, 1);
+  ctx.fillStyle = 'rgba(40,18,28,' + lerp(0.34, 0.12, hgt) + ')';
+  ctx.beginPath(); ctx.ellipse(dino.x, GROUND + 5, lerp(30, 14, hgt), 4.5, 0, 0, TAU); ctx.fill();
+  for (const o of obstacles){
+    const a = o.type === 'branch' ? 0.16 : 0.3;
+    ctx.fillStyle = 'rgba(40,18,28,' + a + ')';
+    ctx.beginPath(); ctx.ellipse(o.x + o.w / 2, GROUND + 5, o.type === 'branch' ? o.w * 0.38 : o.w * 0.5, 4, 0, 0, TAU); ctx.fill();
+  }
+}
+function drawCactusTrunk(cx, h, w){
+  const base = GROUND;
+  ctx.fillStyle = '#2f8568';
+  ctx.strokeStyle = '#143d30'; ctx.lineWidth = 2;
+  rr(ctx, cx - w / 2, base - h, w, h, w / 2); ctx.fill(); ctx.stroke();
+  const armH = h * 0.55;
+  rr(ctx, cx - w / 2 - 8, base - armH, 9, 6, 3); ctx.fill(); ctx.stroke();
+  rr(ctx, cx - w / 2 - 8, base - armH - 11, 6, 14, 3); ctx.fill(); ctx.stroke();
+  rr(ctx, cx + w / 2 - 1, base - h * 0.4, 9, 6, 3); ctx.fill(); ctx.stroke();
+  rr(ctx, cx + w / 2 + 2, base - h * 0.4 - 12, 6, 15, 3); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = 'rgba(190,230,200,0.35)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(cx, base - h + 4); ctx.lineTo(cx, base - 4); ctx.stroke();
+}
+function drawRock(o){
+  const base = GROUND, w = o.w, h = o.h;
+  ctx.fillStyle = '#7d6b57'; ctx.strokeStyle = '#4a3c30'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(o.x + 2, base);
+  ctx.lineTo(o.x + w * 0.12, base - h * 0.75);
+  ctx.lineTo(o.x + w * 0.38, base - h);
+  ctx.lineTo(o.x + w * 0.72, base - h * 0.88);
+  ctx.lineTo(o.x + w - 2, base - h * 0.3);
+  ctx.lineTo(o.x + w, base);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,220,180,0.18)';
+  ctx.beginPath();
+  ctx.moveTo(o.x + w * 0.12, base - h * 0.75); ctx.lineTo(o.x + w * 0.38, base - h); ctx.lineTo(o.x + w * 0.42, base - h * 0.5);
+  ctx.closePath(); ctx.fill();
+}
+function drawLog(o){
+  const base = GROUND, w = o.w, h = o.h;
+  ctx.fillStyle = '#7a4f30'; ctx.strokeStyle = '#4a2f1c'; ctx.lineWidth = 2;
+  rr(ctx, o.x, base - h, w, h, h / 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#a3714a';
+  ctx.beginPath(); ctx.ellipse(o.x + w - h / 2, base - h / 2, h / 2 - 2, h / 2 - 2, 0, 0, TAU); ctx.fill();
+  ctx.strokeStyle = '#7a4f30'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.ellipse(o.x + w - h / 2, base - h / 2, (h / 2 - 2) * 0.55, (h / 2 - 2) * 0.55, 0, 0, TAU); ctx.stroke();
+  ctx.strokeStyle = 'rgba(74,47,28,0.5)';
+  ctx.beginPath();
+  ctx.moveTo(o.x + 8, base - h * 0.6); ctx.lineTo(o.x + w - 14, base - h * 0.6);
+  ctx.moveTo(o.x + 10, base - h * 0.3); ctx.lineTo(o.x + w - 16, base - h * 0.3);
+  ctx.stroke();
+}
+function drawBranch(o){
+  const yMid = GROUND - 100, w = o.w;
+  const leaves = [
+    [o.x + 16, yMid - 34, 17], [o.x + 42, yMid - 44, 21], [o.x + 70, yMid - 30, 16],
+    [o.x + 30, yMid - 16, 14], [o.x + 58, yMid - 12, 13], [o.x + 12, yMid - 10, 12]
+  ];
+  for (let i = 0; i < leaves.length; i++){
+    const lx = leaves[i][0], ly = leaves[i][1], lr = leaves[i][2];
+    ctx.fillStyle = i % 2 ? '#3f7d3a' : '#56934a';
+    ctx.strokeStyle = '#245226'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(lx, ly, lr, 0, TAU); ctx.fill(); ctx.stroke();
+  }
+  ctx.strokeStyle = '#7a4a2e'; ctx.lineWidth = 8; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(o.x - 2, yMid + 6);
+  ctx.quadraticCurveTo(o.x + w * 0.5, yMid - 4, o.x + w + 2, yMid + 2);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,210,160,0.25)'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(o.x + 4, yMid + 2);
+  ctx.quadraticCurveTo(o.x + w * 0.5, yMid - 8, o.x + w - 4, yMid - 2);
+  ctx.stroke();
+  ctx.strokeStyle = '#4a6a34'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(o.x + 26, yMid - 2); ctx.quadraticCurveTo(o.x + 22, GROUND - 70, o.x + 28, GROUND - 52);
+  ctx.moveTo(o.x + 62, yMid - 4); ctx.quadraticCurveTo(o.x + 66, GROUND - 76, o.x + 60, GROUND - 56);
+  ctx.stroke();
+  ctx.fillStyle = '#56934a';
+  ctx.beginPath(); ctx.arc(o.x + 28, GROUND - 50, 3.5, 0, TAU); ctx.arc(o.x + 60, GROUND - 54, 3.5, 0, TAU); ctx.fill();
+}
+function drawObstacle(o){
+  if (o.type === 'branch') { drawBranch(o); return; }
+  if (o.type === 'rock')   { drawRock(o); return; }
+  if (o.type === 'log')    { drawLog(o); return; }
+  const trunks = [];
+  if (o.type === 'cactusS') trunks.push([o.x + 11, o.h, 11]);
+  else if (o.type === 'cactusT') trunks.push([o.x + 13, o.h, 12]);
+  else if (o.type === 'double') trunks.push([o.x + 11, o.h, 11], [o.x + 47, o.h, 11]);
+  else if (o.type === 'triple') trunks.push([o.x + 12, o.h, 12], [o.x + 42, o.h, 12], [o.x + 72, o.h, 12]);
+  for (const tr of trunks) drawCactusTrunk(tr[0], tr[1], tr[2]);
+}
+function drawLeg(hip, foot, col){
+  const kx = (hip.x + foot.x) / 2 + 3, ky = (hip.y + foot.y) / 2 + 1;
+  ctx.strokeStyle = col; ctx.lineWidth = 8; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath(); ctx.moveTo(hip.x, hip.y); ctx.quadraticCurveTo(kx, ky, foot.x, foot.y); ctx.stroke();
+  ctx.fillStyle = col;
+  ctx.beginPath(); ctx.ellipse(foot.x + 3, foot.y - 1.5, 6, 3.4, 0, 0, TAU); ctx.fill();
+}
+function drawDino(){
+  const d = dino;
+  const dead = (state === 'dying' || state === 'gameover');
+  ctx.save();
+  ctx.translate(d.x, d.y);
+  if (d.squashT > 0){ const k = d.squashT / 0.14; ctx.scale(1 + 0.1 * k, 1 - 0.16 * k); }
+  if (dead) ctx.rotate(-0.55 * Math.min(1, dieT * 2.2));
+  const duck = d.duckAmt, tuck = d.tuck;
+  const bob = (d.onGround && !dead) ? Math.sin(d.phase * 2) * 1.6 : 0;
+  const bodyCy = lerp(-36 + bob, -15, duck);
+  const bodyRx = lerp(21, 27, duck), bodyRy = lerp(13.5, 10.5, duck);
+  const headCx = lerp(20, 25, duck), headCy = lerp(-51 + bob * 0.7, -17, duck);
+  const tailX = lerp(-46, -44, duck), tailY = lerp(-27 + Math.sin(d.phase) * 1.5, -11, duck);
+  const s1 = Math.sin(d.phase), s2 = Math.sin(d.phase + Math.PI);
+  const fArun  = { x: -8 + s1 * 12, y: -3 - Math.max(0, Math.cos(d.phase)) * 7 };
+  const fBrun  = { x: 6 + s2 * 12,  y: -3 - Math.max(0, Math.cos(d.phase + Math.PI)) * 7 };
+  const fAjump = { x: -16, y: -17 }, fBjump = { x: 15, y: -11 };
+  const fAduck = { x: -24, y: -2 },  fBduck = { x: 18, y: -2 };
+  const mixP = (a, b, tt) => ({ x: lerp(a.x, b.x, tt), y: lerp(a.y, b.y, tt) });
+  const fA = mixP(mixP(fArun, fAjump, tuck), fAduck, duck);
+  const fB = mixP(mixP(fBrun, fBjump, tuck), fBduck, duck);
+  const hipA = { x: lerp(-8, -12, duck), y: lerp(-26, -12, duck) };
+  const hipB = { x: lerp(6, 8, duck),    y: lerp(-26, -12, duck) };
+  const COL = { body: '#4fae62', dark: '#3c9152', belly: '#cfe8b8', line: '#17351f' };
+  // tail
+  ctx.fillStyle = COL.body;
+  ctx.beginPath();
+  ctx.moveTo(-12, bodyCy - 7);
+  ctx.quadraticCurveTo(-34, bodyCy - 5, tailX, tailY);
+  ctx.quadraticCurveTo(-30, bodyCy + 7, -12, bodyCy + 6);
+  ctx.closePath(); ctx.fill();
+  // far leg
+  drawLeg(hipA, fA, COL.dark);
+  // neck
+  ctx.strokeStyle = COL.body; ctx.lineWidth = 11; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(8, bodyCy - 3); ctx.lineTo(headCx - 3, headCy + 3); ctx.stroke();
+  // body + belly
+  ctx.fillStyle = COL.body;
+  ctx.beginPath(); ctx.ellipse(-2, bodyCy, bodyRx, bodyRy, -0.06, 0, TAU); ctx.fill();
+  ctx.strokeStyle = 'rgba(23,53,31,0.55)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.ellipse(-2, bodyCy, bodyRx, bodyRy, -0.06, 0, TAU); ctx.stroke();
+  ctx.fillStyle = COL.belly;
+  ctx.beginPath(); ctx.ellipse(3, bodyCy + 4.5, bodyRx * 0.68, bodyRy * 0.6, -0.06, 0, TAU); ctx.fill();
+  // back stripes
+  ctx.strokeStyle = 'rgba(31,84,50,0.5)'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+  for (let i = 0; i < 3; i++){
+    const x0 = -13 + i * 8;
+    ctx.beginPath(); ctx.arc(x0, bodyCy - bodyRy + 3, 5, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke();
+  }
+  // head
+  ctx.fillStyle = COL.body;
+  ctx.beginPath(); ctx.ellipse(headCx, headCy, 10.5, 8, 0.06, 0, TAU); ctx.fill();
+  rr(ctx, headCx + 3, headCy + (duck ? 1 : 0), 12, 7, 3); ctx.fill();
+  ctx.strokeStyle = COL.line; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.moveTo(headCx + 3, headCy + (duck ? 6.5 : 5.5)); ctx.lineTo(headCx + 14, headCy + (duck ? 6 : 5)); ctx.stroke();
+  if (dead){
+    ctx.strokeStyle = COL.line; ctx.lineWidth = 1.8;
+    const ex = headCx + 4, ey = headCy - 2.5;
+    ctx.beginPath();
+    ctx.moveTo(ex - 2.4, ey - 2.4); ctx.lineTo(ex + 2.4, ey + 2.4);
+    ctx.moveTo(ex + 2.4, ey - 2.4); ctx.lineTo(ex - 2.4, ey + 2.4);
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(headCx + 4, headCy - 2.5, 2.7, 0, TAU); ctx.fill();
+    ctx.fillStyle = COL.line;
+    ctx.beginPath(); ctx.arc(headCx + 5.2, headCy - 2.5, 1.4, 0, TAU); ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(23,53,31,0.7)';
+  ctx.beginPath(); ctx.arc(headCx + 12, headCy + (duck ? 3.5 : 2.5), 1, 0, TAU); ctx.fill();
+  // arm
+  ctx.strokeStyle = COL.body; ctx.lineWidth = 4; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(8, bodyCy + 1); ctx.lineTo(13, bodyCy + 6); ctx.stroke();
+  // near leg
+  drawLeg(hipB, fB, COL.body);
+  ctx.restore();
+}
+function drawParticles(){
+  for (const p of particles){
+    const a = clamp(p.life / p.max, 0, 1) * 0.55;
+    ctx.fillStyle = 'rgba(222,186,148,' + a + ')';
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, TAU); ctx.fill();
+  }
+}
+function drawFloats(){
+  ctx.textAlign = 'center';
+  ctx.font = '700 15px Consolas, Menlo, monospace';
+  for (const f of floats){
+    const a = clamp(f.life / 0.9, 0, 1);
+    ctx.fillStyle = 'rgba(255,232,170,' + a + ')';
+    ctx.fillText(f.txt, f.x, f.y);
+  }
+}
+function drawWorld(){
+  drawSky();
+  drawClouds(false);
+  drawMountains();
+  drawBirds();
+  drawHills();
+  drawClouds(true);
+  drawShoulder();
+  drawTrees();
+  drawRoadside();
+  drawGround();
+  drawShadows();
+  for (const o of obstacles) drawObstacle(o);
+  drawDino();
+  drawParticles();
+  drawFloats();
+}
+function drawPostFX(){
+  const g = ctx.createRadialGradient(W / 2, H * 0.42, Math.min(W, H) * 0.35, W / 2, H * 0.5, Math.max(W, H) * 0.72);
+  g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(24,8,32,0.4)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  if (flash > 0){ ctx.fillStyle = 'rgba(255,240,220,' + flash * 0.5 + ')'; ctx.fillRect(0, 0, W, H); }
+}
+function drawHUD(){
+  if (state !== 'ready'){
+    ctx.textAlign = 'right';
+    ctx.fillStyle = 'rgba(255,240,220,0.95)';
+    ctx.font = '700 26px Consolas, Menlo, monospace';
+    ctx.fillText(String(Math.floor(score())).padStart(5, '0'), W - 24, 46);
+    ctx.font = '600 13px Consolas, Menlo, monospace';
+    ctx.fillStyle = 'rgba(255,240,220,0.55)';
+    ctx.fillText('BEST ' + String(Math.floor(best)).padStart(5, '0'), W - 24, 66);
+  }
+  if (muted){
+    ctx.textAlign = 'left';
+    ctx.font = '600 12px Consolas, Menlo, monospace';
+    ctx.fillStyle = 'rgba(255,240,220,0.4)';
+    ctx.fillText('MUTED (M)', 16, 28);
+  }
+  if (state === 'ready'){
+    ctx.textAlign = 'center';
+    ctx.save();
+    ctx.shadowColor = 'rgba(110,30,20,0.65)'; ctx.shadowBlur = 22; ctx.shadowOffsetY = 5;
+    ctx.fillStyle = '#ffe9c9';
+    ctx.font = '800 52px "Segoe UI", system-ui, sans-serif';
+    ctx.fillText('DINO RUNNER', W / 2, H * 0.32);
+    ctx.restore();
+    ctx.fillStyle = 'rgba(255,232,200,0.85)';
+    ctx.font = '500 17px "Segoe UI", system-ui, sans-serif';
+    ctx.fillText('A sunset endless run', W / 2, H * 0.32 + 30);
+    ctx.font = '600 15px "Segoe UI", system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,232,200,0.75)';
+    ctx.fillText('\u2191 / W  jump      \u2193 / S  duck', W / 2, H * 0.32 + 64);
+    const pulse = 0.55 + 0.45 * Math.sin(t * 4);
+    ctx.fillStyle = 'rgba(255,240,210,' + pulse + ')';
+    ctx.font = '700 19px "Segoe UI", system-ui, sans-serif';
+    ctx.fillText('Press SPACE to start', W / 2, H * 0.32 + 104);
+  }
+  if (state === 'gameover'){
+    ctx.textAlign = 'center';
+    ctx.save();
+    ctx.shadowColor = 'rgba(120,20,10,0.7)'; ctx.shadowBlur = 24; ctx.shadowOffsetY = 5;
+    ctx.fillStyle = '#ffb08a';
+    ctx.font = '800 50px "Segoe UI", system-ui, sans-serif';
+    ctx.fillText('GAME OVER', W / 2, H * 0.34);
+    ctx.restore();
+    ctx.fillStyle = 'rgba(255,240,220,0.92)';
+    ctx.font = '700 24px Consolas, Menlo, monospace';
+    ctx.fillText('SCORE ' + String(Math.floor(score())).padStart(5, '0'), W / 2, H * 0.34 + 44);
+    ctx.font = '600 15px Consolas, Menlo, monospace';
+    ctx.fillStyle = 'rgba(255,240,220,0.6)';
+    ctx.fillText('BEST ' + String(Math.floor(best)).padStart(5, '0'), W / 2, H * 0.34 + 70);
+    const pulse = 0.55 + 0.45 * Math.sin(t * 4);
+    ctx.fillStyle = 'rgba(255,240,210,' + pulse + ')';
+    ctx.font = '700 18px "Segoe UI", system-ui, sans-serif';
+    ctx.fillText('Press SPACE or ENTER to restart', W / 2, H * 0.34 + 112);
+  }
+  if (state === 'running' && hintT > 0){
+    const a = clamp(hintT, 0, 1) * 0.6;
+    ctx.textAlign = 'left';
+    ctx.font = '600 13px "Segoe UI", system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,232,200,' + a + ')';
+    ctx.fillText('\u2191 jump   \u2193 duck', 16, H - 20);
+  }
+}
+function render(){
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  const shx = (Math.random() * 2 - 1) * shake * 10, shy = (Math.random() * 2 - 1) * shake * 7;
+  ctx.setTransform(dpr * S, 0, 0, dpr * S, dpr * shx * S, dpr * shy * S);
+  drawWorld();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawPostFX();
+  drawHUD();
+}
+function frame(now){
+  requestAnimationFrame(frame);
+  let dt = (now - lastT) / 1000; lastT = now;
+  if (!(dt > 0)) dt = 0.016;
+  dt = Math.min(dt, 0.05);
+  update(dt);
+  render();
+}
+resize();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
