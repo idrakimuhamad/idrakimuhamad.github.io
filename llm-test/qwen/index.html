@@ -2,497 +2,887 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Sunset Drive</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Dino Run — Sunset</title>
 <style>
-  html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#14101f}
-  canvas{display:block;width:100vw;height:100vh}
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #1a1626;
+    overscroll-behavior: none;
+    touch-action: none;
+  }
+  #c {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+  }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <script>
-"use strict";
-/*
-  Sunset Drive — single-file canvas animation, no libraries.
+(function () {
+  'use strict';
 
-  DIRECTION CONVENTION (important):
-  The car faces right (+x) and drives forward to the right. For that to read
-  correctly, every scrolling layer must move to the LEFT:
-      screenX = fixedWorldX - worldX * layerSpeed
-  worldX increases with time, so every layer's tile origin is
-      x = i * period - (worldX * speed) % period
-  The road dashes use exactly the SAME sign (offset = worldX % period,
-  dashes drawn at i * dashPeriod - offset), so they scroll left with the
-  rest of the world — never the opposite way.
-*/
-const canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
-const TAU=Math.PI*2;
-let W=0,H=0,DPR=1,worldX=0,worldSpeed=220;
+  var canvas = document.getElementById('c');
+  var ctx = canvas.getContext('2d');
+  var W = 0, H = 0, dpr = 1;
 
-/* ---------- deterministic RNG (stable but varied scenery) ---------- */
-function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
-const R=mulberry32(20260816);
+  // ---------- tunables (recomputed on resize) ----------
+  var groundY, dinoX, dinoStandH, dinoStandW, dinoDuckH, dinoDuckW;
+  var g, jumpV, baseSpeed, maxSpeed;
 
-/* ---------- scenery data (built once) ---------- */
-const clouds=[];
-for(let i=0;i<7;i++){
-  const puffs=[],n=4+(R()*4|0);
-  for(let j=0;j<n;j++)puffs.push({dx:(j-(n-1)/2)*26+(R()-0.5)*14,dy:(R()-0.5)*10,rx:26+R()*22,ry:12+R()*8});
-  clouds.push({x:R()*1.4,y:0.05+R()*0.30,s:0.55+R()*0.9,a:0.5+R()*0.35,drift:4+R()*6,puffs});
-}
-const birds=[];
-for(let i=0;i<6;i++)birds.push({x:R()*1.15,y:0.14+R()*0.26,s:0.7+R()*0.8,phase:R()*TAU,flap:5+R()*4,drift:10+R()*14});
-const treeline=[];{const P=1200;for(let i=0;i<14;i++)treeline.push({x:R()*P,h:0.018+R()*0.030,w:0.010+R()*0.014});}
-const midTrees=[];{const P=1500;for(let i=0;i<3;i++)midTrees.push({x:R()*P,s:0.75+R()*0.6,round:R()<0.6,base:0.72+R()*0.05});}
-const bushes=[];{const P=800;
-  for(let i=0;i<4;i++)bushes.push({x:R()*P,s:0.6+R()*0.8,tuft:false,base:0.765+R()*0.02});
-  for(let i=0;i<7;i++)bushes.push({x:R()*P,s:0.5+R()*0.7,tuft:true,base:0.77+R()*0.015});}
-const patches=[];{const P=1300;for(let i=0;i<6;i++)patches.push({x:R()*P,w:60+R()*120,y:0.15+R()*0.7,a:0.04+R()*0.05});}
-const fore=[];{const P=640;
-  for(let i=0;i<9;i++)fore.push({x:R()*P,s:0.6+R()*1.0,tuft:true});
-  for(let i=0;i<3;i++)fore.push({x:R()*P,s:0.5+R()*0.8,tuft:false});}
-
-/* ---------- periodic ridge shapes (seamless tiling) ---------- */
-const tri=t=>{const f=t-Math.floor(t);return 1-Math.abs(2*f-1);};
-const ridgeFar =u=>0.55*tri(u*2)        +0.25*Math.sin(u*10*Math.PI+1.7)+0.20*Math.sin(u*22*Math.PI+0.4);
-const ridgeNear=u=>0.50*tri(u*3+0.25)   +0.28*Math.sin(u*14*Math.PI+2.2)+0.15*Math.sin(u*26*Math.PI+4.1);
-const ridgeHill=u=>0.50*Math.sin(u*4*Math.PI+0.8)+0.30*Math.sin(u*10*Math.PI+2.0)+0.20*Math.sin(u*18*Math.PI+1.1);
-
-/* ---------- layout / gradients ---------- */
-let horizonY,roadTop,roadBottom,groundY,carX,carL,carR;
-let skyGrad,grassGrad,roadGrad,foreGrad,vignette;
-function layout(){
-  horizonY=H*0.58;roadTop=H*0.78;roadBottom=H*0.94;groundY=H*0.90;
-  carX=W*0.30;carL=Math.min(Math.max(W*0.34,240),560);carR=carL*0.085;
-  skyGrad=ctx.createLinearGradient(0,0,0,horizonY);
-  skyGrad.addColorStop(0,'#1c2350');skyGrad.addColorStop(0.45,'#4c3a72');
-  skyGrad.addColorStop(0.72,'#8c4f78');skyGrad.addColorStop(0.90,'#d46a5f');skyGrad.addColorStop(1,'#f2a65c');
-  grassGrad=ctx.createLinearGradient(0,horizonY,0,roadTop);
-  grassGrad.addColorStop(0,'#5c4468');grassGrad.addColorStop(0.5,'#3a2c50');grassGrad.addColorStop(1,'#251d3c');
-  roadGrad=ctx.createLinearGradient(0,roadTop,0,roadBottom);
-  roadGrad.addColorStop(0,'#3a3346');roadGrad.addColorStop(0.35,'#2b2637');roadGrad.addColorStop(1,'#211d2c');
-  foreGrad=ctx.createLinearGradient(0,roadBottom,0,H);
-  foreGrad.addColorStop(0,'#1d1830');foreGrad.addColorStop(1,'#120e1c');
-  vignette=ctx.createRadialGradient(W/2,H*0.55,Math.min(W,H)*0.45,W/2,H*0.55,Math.max(W,H)*0.75);
-  vignette.addColorStop(0,'rgba(0,0,0,0)');vignette.addColorStop(1,'rgba(8,4,16,0.42)');
-}
-function resize(){
-  DPR=Math.min(window.devicePixelRatio||1,2);
-  W=window.innerWidth;H=window.innerHeight;
-  canvas.width=Math.round(W*DPR);canvas.height=Math.round(H*DPR);
-  ctx.setTransform(DPR,0,0,DPR,0,0);
-  layout();
-}
-window.addEventListener('resize',resize);
-resize();
-
-/* ---------- helpers ---------- */
-function wrapTiles(off,P,fn){
-  const n=Math.ceil(W/P)+2;
-  for(let i=0;i<n;i++)fn(i*P-off-P); // tile origin: i*P - offset  (world moves LEFT)
-}
-function roundRect(x,y,w,h,r){
-  ctx.beginPath();
-  ctx.moveTo(x+r,y);
-  ctx.arcTo(x+w,y,x+w,y+h,r);
-  ctx.arcTo(x+w,y+h,x,y+h,r);
-  ctx.arcTo(x,y+h,x,y,r);
-  ctx.arcTo(x,y,x+w,y,r);
-  ctx.closePath();
-}
-
-/* ---------- sky elements ---------- */
-function drawSun(){
-  const sx=W*0.70,sy=horizonY-H*0.03,sr=H*0.05;
-  const glow=ctx.createRadialGradient(sx,sy,sr*0.2,sx,sy,H*0.42);
-  glow.addColorStop(0,'rgba(255,190,110,0.55)');
-  glow.addColorStop(0.35,'rgba(255,150,80,0.18)');
-  glow.addColorStop(1,'rgba(255,150,80,0)');
-  ctx.fillStyle=glow;ctx.fillRect(0,0,W,horizonY+H*0.10);
-  const core=ctx.createRadialGradient(sx,sy,0,sx,sy,sr);
-  core.addColorStop(0,'#fff3d8');core.addColorStop(0.7,'#ffd9a0');core.addColorStop(1,'#ffb877');
-  ctx.fillStyle=core;ctx.beginPath();ctx.arc(sx,sy,sr,0,TAU);ctx.fill();
-}
-function drawClouds(dt){
-  for(const c of clouds){
-    c.x-=(c.drift+worldSpeed*0.04)*dt/W; // slow parallax + own drift, leftward
-    if(c.x<-0.2)c.x+=1.6;
-    const cx=c.x*W,cy=c.y*H,s=c.s*(H/900);
-    ctx.save();ctx.globalAlpha=c.a;
-    const g=ctx.createLinearGradient(0,cy-30*s,0,cy+26*s);
-    g.addColorStop(0,'#7d6390');g.addColorStop(0.55,'#b57d95');g.addColorStop(1,'#f0a878');
-    ctx.fillStyle=g;ctx.beginPath();
-    for(const p of c.puffs){ctx.moveTo(cx+p.dx*s+p.rx*s,cy+p.dy*s);ctx.ellipse(cx+p.dx*s,cy+p.dy*s,p.rx*s,p.ry*s,0,0,TAU);}
-    ctx.fill();ctx.restore();
+  function recompute() {
+    groundY = H * 0.82;
+    dinoX = Math.max(90, W * 0.16);
+    dinoStandH = H * 0.135;
+    dinoStandW = H * 0.105;
+    dinoDuckH = H * 0.075;
+    dinoDuckW = H * 0.15;
+    g = H * 3.4;
+    jumpV = H * 1.08;
+    baseSpeed = W * 0.35;
+    maxSpeed = W * 0.85;
   }
-}
-function drawRidge(speed,period,fn,baseY,amp,cTop,cBot,rim){
-  const off=(worldX*speed)%period;
-  const pts=[];
-  for(let x=-8;x<=W+8;x+=6)pts.push([x,baseY-amp*fn((x+off)/period)]);
-  ctx.beginPath();
-  ctx.moveTo(pts[0][0],baseY+14);
-  for(const p of pts)ctx.lineTo(p[0],p[1]);
-  ctx.lineTo(pts[pts.length-1][0],baseY+14);
-  ctx.closePath();
-  const g=ctx.createLinearGradient(0,baseY-amp,0,baseY+14);
-  g.addColorStop(0,cTop);g.addColorStop(1,cBot);
-  ctx.fillStyle=g;ctx.fill();
-  if(rim){
-    ctx.beginPath();ctx.moveTo(pts[0][0],pts[0][1]);
-    for(const p of pts)ctx.lineTo(p[0],p[1]);
-    ctx.strokeStyle=rim;ctx.lineWidth=1.5;ctx.stroke();
-  }
-}
-function drawBirds(dt){
-  // birds are drawn AFTER mountains/hills => they sit in FRONT of them (closer)
-  ctx.strokeStyle='rgba(30,22,44,0.9)';ctx.lineCap='round';
-  for(const b of birds){
-    b.x-=(b.drift+worldSpeed*0.2)*dt/W;
-    if(b.x<-0.05)b.x+=1.15;
-    const x=b.x*W,y=b.y*H+Math.sin(b.phase*0.5)*4;
-    b.phase+=b.flap*dt;
-    const f=Math.sin(b.phase)*0.55,s=b.s*(H/900)*10;
-    ctx.lineWidth=Math.max(1.2,s*0.16);
-    ctx.beginPath();
-    ctx.moveTo(x-s,y-f*s*0.9);
-    ctx.quadraticCurveTo(x-s*0.35,y+f*s*0.5,x,y);
-    ctx.quadraticCurveTo(x+s*0.35,y+f*s*0.5,x+s,y-f*s*0.9);
-    ctx.stroke();
-  }
-}
-function drawHaze(){
-  const g=ctx.createLinearGradient(0,horizonY-H*0.06,0,horizonY+H*0.05);
-  g.addColorStop(0,'rgba(242,166,92,0)');
-  g.addColorStop(0.6,'rgba(242,166,92,0.20)');
-  g.addColorStop(1,'rgba(242,166,92,0)');
-  ctx.fillStyle=g;ctx.fillRect(0,horizonY-H*0.06,W,H*0.11);
-}
 
-/* ---------- ground scenery layers ---------- */
-function drawTreeline(){
-  const P=1200,off=(worldX*0.30)%P;
-  ctx.fillStyle='#332a52';
-  wrapTiles(off,P,tx=>{
-    for(const t of treeline){
-      const x=tx+t.x,base=horizonY+6,h=t.h*H,w=t.w*H;
-      ctx.beginPath();
-      ctx.moveTo(x-w,base);
-      ctx.quadraticCurveTo(x-w*0.7,base-h*0.55,x,base-h);
-      ctx.quadraticCurveTo(x+w*0.7,base-h*0.55,x+w,base);
-      ctx.closePath();ctx.fill();
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = Math.floor(W * dpr);
+    canvas.height = Math.floor(H * dpr);
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    recompute();
+    if (state.mode !== 'running') state.dinoY = groundY;
+  }
+  window.addEventListener('resize', resize);
+
+  // ---------- procedural hash (stable per tile index) ----------
+  function ih(n) {
+    n = (n << 13) ^ n;
+    n = (n * (n * n * 15731 + 789221) + 1376312589) >>> 0;
+    return n / 4294967296;
+  }
+
+  // ---------- state ----------
+  var high = 0;
+  try { high = parseInt(localStorage.getItem('dinoHigh') || '0', 10) || 0; } catch (e) {}
+
+  var state = {
+    mode: 'ready',       // ready | running | gameover
+    distance: 0,
+    speed: 0,
+    score: 0,
+    bonus: 0,
+    high: high,
+    dinoY: 0,
+    vy: 0,
+    onGround: true,
+    ducking: false,
+    lastGroundTime: 0,
+    jumpBuffer: 0,
+    shake: 0,
+    shakeTime: 0,
+    obstacles: [],
+    nextObstacle: 0,
+    dust: [],
+    time: 0
+  };
+
+  function reset() {
+    state.mode = 'running';
+    state.distance = 0;
+    state.speed = baseSpeed;
+    state.score = 0;
+    state.bonus = 0;
+    state.dinoY = groundY;
+    state.vy = 0;
+    state.onGround = true;
+    state.ducking = false;
+    state.lastGroundTime = state.time;
+    state.jumpBuffer = 0;
+    state.shake = 0;
+    state.shakeTime = 0;
+    state.obstacles.length = 0;
+    state.dust.length = 0;
+    state.nextObstacle = W + 400;
+  }
+
+  // ---------- input ----------
+  var keys = { up: false, down: false };
+
+  function tryJump() {
+    if (state.mode !== 'running') return;
+    var coyote = (state.time - state.lastGroundTime) < 0.09;
+    if (state.onGround || coyote) {
+      state.vy = -jumpV;
+      state.onGround = false;
+      state.lastGroundTime = 0;
+      state.jumpBuffer = 0;
+      spawnDust(6);
+    } else {
+      state.jumpBuffer = 0.12;
     }
+  }
+
+  window.addEventListener('keydown', function (e) {
+    var k = e.code;
+    if (k === 'ArrowUp' || k === 'ArrowDown' || k === 'ArrowLeft' ||
+        k === 'ArrowRight' || k === 'Space' || k === 'Enter') {
+      e.preventDefault();
+    }
+    if (e.repeat) return;
+
+    if (state.mode === 'gameover') {
+      if (k === 'Space' || k === 'Enter') reset();
+      return;
+    }
+    if (state.mode === 'ready') {
+      if (k === 'ArrowUp' || k === 'Space' || k === 'Enter') reset();
+      return;
+    }
+    // running
+    if (k === 'ArrowUp') { keys.up = true; tryJump(); }
+    else if (k === 'Space') { tryJump(); }
+    else if (k === 'ArrowDown') { keys.down = true; }
   });
-}
-function drawMidTrees(){
-  const P=1500,off=(worldX*0.55)%P;
-  wrapTiles(off,P,tx=>{
-    for(const t of midTrees){
-      const x=tx+t.x,base=t.base*H,h=(0.11+t.s*0.05)*H,w=h*0.42;
-      ctx.fillStyle='#191430';
-      ctx.fillRect(x-w*0.06,base-h*0.45,w*0.12,h*0.5);
-      ctx.fillStyle='#241d40';
-      ctx.beginPath();
-      if(t.round){
-        ctx.arc(x,base-h*0.62,w*0.5,0,TAU);
-        ctx.arc(x-w*0.42,base-h*0.48,w*0.36,0,TAU);
-        ctx.arc(x+w*0.42,base-h*0.50,w*0.38,0,TAU);
-      }else{
-        ctx.moveTo(x,base-h);ctx.lineTo(x+w*0.5,base-h*0.35);ctx.lineTo(x-w*0.5,base-h*0.35);ctx.closePath();
-        ctx.moveTo(x,base-h*0.75);ctx.lineTo(x+w*0.42,base-h*0.15);ctx.lineTo(x-w*0.42,base-h*0.15);ctx.closePath();
+
+  window.addEventListener('keyup', function (e) {
+    if (e.code === 'ArrowDown') keys.down = false;
+    if (e.code === 'ArrowUp') keys.up = false;
+  });
+
+  // pointer: tap to start / restart (convenience)
+  window.addEventListener('pointerdown', function () {
+    if (state.mode === 'ready' || state.mode === 'gameover') reset();
+  });
+
+  // ---------- obstacles ----------
+  function spawnObstacle(wx) {
+    var r = ih(wx * 3 + 1);
+    var diff = Math.min(1, state.score / 4000);
+    var type;
+    if (r < 0.5) type = 'hurdle';
+    else if (r < 0.8) type = 'branch';
+    else type = 'tall';
+    if (diff > 0.4 && r < 0.35) type = 'branch';
+
+    var o = { worldX: wx, sx: wx - state.distance, type: type, passed: false };
+    if (type === 'hurdle') {
+      o.w = H * (0.03 + ih(wx + 7) * 0.02);
+      o.h = H * (0.05 + ih(wx + 13) * 0.03);
+      o.bonus = 10;
+    } else if (type === 'tall') {
+      o.w = H * 0.045;
+      o.h = H * (0.08 + ih(wx + 29) * 0.03);
+      o.bonus = 15;
+    } else { // branch (duck under)
+      o.w = H * (0.09 + ih(wx + 3) * 0.05);
+      o.gap = H * 0.085;
+      o.solidH = H * 0.09;
+      o.bonus = 20;
+    }
+    state.obstacles.push(o);
+  }
+
+  function oHitbox(o) {
+    if (o.type === 'branch') {
+      return { x: o.sx, y: groundY - o.gap - o.solidH, w: o.w, h: o.solidH };
+    }
+    return { x: o.sx, y: groundY - o.h, w: o.w, h: o.h };
+  }
+
+  function dinoHitbox() {
+    var h = state.ducking ? dinoDuckH : dinoStandH;
+    var w = state.ducking ? dinoDuckW : dinoStandW;
+    return {
+      x: dinoX + w * 0.18,
+      y: state.dinoY - h + h * 0.12,
+      w: w * 0.64,
+      h: h * 0.8
+    };
+  }
+
+  function aabb(a, b) {
+    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  }
+
+  function updateObstacles() {
+    // spawn ahead of the right edge
+    while (state.nextObstacle < state.distance + W) {
+      spawnObstacle(state.nextObstacle);
+      var minT = Math.max(0.9, 1.7 - state.score * 0.0008);
+      var extra = 0.4 + ih(state.nextObstacle) * 0.5;
+      state.nextObstacle += state.speed * (minT + extra);
+    }
+    var dh = dinoHitbox();
+    for (var i = state.obstacles.length - 1; i >= 0; i--) {
+      var o = state.obstacles[i];
+      o.sx = o.worldX - state.distance;
+      if (o.sx + o.w < -60) { state.obstacles.splice(i, 1); continue; }
+      if (!o.passed && o.sx + o.w < dinoX) {
+        o.passed = true;
+        state.bonus += o.bonus;
       }
+      if (aabb(dh, oHitbox(o))) {
+        gameOver();
+        return;
+      }
+    }
+  }
+
+  function gameOver() {
+    state.mode = 'gameover';
+    state.shake = 1;
+    state.shakeTime = 0.5;
+    if (state.score > state.high) {
+      state.high = state.score;
+      try { localStorage.setItem('dinoHigh', String(state.high)); } catch (e) {}
+    }
+    spawnDust(22);
+  }
+
+  // ---------- dust ----------
+  function spawnDust(n) {
+    for (var i = 0; i < n; i++) {
+      state.dust.push({
+        x: dinoX + Math.random() * dinoStandW,
+        y: groundY,
+        vx: -50 - Math.random() * 100,
+        vy: -20 - Math.random() * 60,
+        life: 0.4 + Math.random() * 0.4,
+        max: 0.8,
+        r: 2 + Math.random() * 4
+      });
+    }
+  }
+
+  function updateFx(dt) {
+    if (state.shakeTime > 0) state.shakeTime -= dt;
+    for (var i = state.dust.length - 1; i >= 0; i--) {
+      var p = state.dust[i];
+      p.life -= dt;
+      if (p.life <= 0) { state.dust.splice(i, 1); continue; }
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += 200 * dt;
+    }
+    if (state.mode === 'running' && state.onGround && Math.random() < 0.3) {
+      state.dust.push({
+        x: dinoX + Math.random() * dinoStandW * 0.5,
+        y: groundY,
+        vx: -40 - Math.random() * 40,
+        vy: -10 - Math.random() * 20,
+        life: 0.3 + Math.random() * 0.3,
+        max: 0.6,
+        r: 1 + Math.random() * 2
+      });
+    }
+  }
+
+  // ---------- update ----------
+  function update(dt) {
+    state.time += dt;
+    updateFx(dt);
+    if (state.mode !== 'running') {
+      state.dinoY = groundY;
+      state.vy = 0;
+      return;
+    }
+
+    // speed ramp (acceleration toward target)
+    var target = Math.min(maxSpeed, baseSpeed + state.score * 0.4);
+    state.speed += (target - state.speed) * Math.min(1, dt * 1.5);
+    state.distance += state.speed * dt;
+    state.score = Math.floor(state.distance / 40) + state.bonus;
+
+    // dino physics
+    state.ducking = keys.down;
+    var fastFall = keys.down && !state.onGround;
+    var grav = g * (fastFall ? 1.9 : 1);
+    state.vy += grav * dt;
+    state.dinoY += state.vy * dt;
+
+    if (state.dinoY >= groundY) {
+      if (!state.onGround) {
+        state.onGround = true;
+        state.dinoY = groundY;
+        state.vy = 0;
+        state.lastGroundTime = state.time;
+        spawnDust(8);
+        if (state.jumpBuffer > 0) tryJump();
+      } else {
+        state.dinoY = groundY;
+        state.vy = 0;
+      }
+    } else {
+      state.onGround = false;
+    }
+    if (state.jumpBuffer > 0) state.jumpBuffer -= dt;
+
+    updateObstacles();
+  }
+
+  // ---------- drawing helpers ----------
+  function roundRect(x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  // Generic tiling layer. scroll = distance * f; as scroll grows, sx shrinks => moves LEFT.
+  function tileLayer(f, T, drawTile) {
+    var scroll = state.distance * f;
+    var first = Math.floor(scroll / T) - 1;
+    var count = Math.ceil(W / T) + 3;
+    for (var i = first; i < first + count; i++) {
+      var sx = i * T - scroll;
+      drawTile(sx, i);
+    }
+  }
+
+  // ---------- background layers ----------
+  function drawSky() {
+    var grd = ctx.createLinearGradient(0, 0, 0, groundY);
+    grd.addColorStop(0, '#241f47');
+    grd.addColorStop(0.35, '#5b3f6b');
+    grd.addColorStop(0.6, '#b5543f');
+    grd.addColorStop(0.82, '#e88a4e');
+    grd.addColorStop(1, '#f7c489');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, W, groundY + 2);
+
+    var sx = W * 0.72, sy = groundY * 0.6, sr = H * 0.11;
+    var glow = ctx.createRadialGradient(sx, sy, 0, sx, sy, sr * 3);
+    glow.addColorStop(0, 'rgba(255,236,180,0.9)');
+    glow.addColorStop(0.3, 'rgba(255,200,120,0.5)');
+    glow.addColorStop(1, 'rgba(255,180,90,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, W, groundY);
+    ctx.fillStyle = '#ffe7ad';
+    ctx.beginPath();
+    ctx.arc(sx, sy, sr, 0, 7);
+    ctx.fill();
+  }
+
+  function drawCloud(x, y, s, a) {
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.fillStyle = '#f7d9b0';
+    ctx.beginPath();
+    ctx.ellipse(x, y, s * 2.2, s, 0, 0, 7);
+    ctx.ellipse(x + s * 1.4, y + s * 0.2, s * 1.6, s * 0.8, 0, 0, 7);
+    ctx.ellipse(x - s * 1.4, y + s * 0.2, s * 1.5, s * 0.7, 0, 0, 7);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawClouds() {
+    tileLayer(0.08, W * 0.6, function (sx, i) {
+      var cy = H * (0.1 + ih(i * 5 + 1) * 0.24);
+      var cs = H * (0.03 + ih(i * 7 + 2) * 0.05);
+      var a = 0.2 + ih(i * 3) * 0.3;
+      drawCloud(sx + ih(i * 9) * W * 0.6, cy, cs, a);
+    });
+  }
+
+  function drawMountains() {
+    for (var layer = 0; layer < 2; layer++) {
+      var f2 = 0.13 + layer * 0.05;
+      var T2 = W * (0.5 - layer * 0.12);
+      var col = layer === 0 ? 'rgba(125,100,150,0.5)' : 'rgba(88,66,112,0.72)';
+      var maxPeak = H * (0.22 - layer * 0.05);
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.moveTo(0, groundY);
+      tileLayer(f2, T2, function (sx, i) {
+        var peak = groundY - H * (0.05 + ih(i * 13 + layer * 7 + 1) * maxPeak);
+        ctx.lineTo(sx, groundY);
+        ctx.lineTo(sx + T2 * 0.5, peak);
+        ctx.lineTo(sx + T2, groundY);
+      });
+      ctx.lineTo(W, groundY);
+      ctx.closePath();
       ctx.fill();
     }
-  });
-}
-function drawPoles(){
-  const P=520,off=(worldX*0.55)%P;
-  wrapTiles(off,P,tx=>{
-    const x=tx+P*0.5,base=H*0.775,top=base-0.17*H;
-    ctx.strokeStyle='#181330';ctx.lineWidth=Math.max(2,H*0.004);
-    ctx.beginPath();ctx.moveTo(x,base);ctx.lineTo(x,top);
-    ctx.quadraticCurveTo(x+H*0.02,top-H*0.004,x+H*0.028,top+H*0.002);
+  }
+
+  function drawBird(x, y, s, flap) {
+    ctx.strokeStyle = 'rgba(45,38,60,0.85)';
+    ctx.lineWidth = Math.max(1.2, s * 0.6);
+    ctx.lineCap = 'round';
+    var wy = flap * s;
+    ctx.beginPath();
+    ctx.moveTo(x - s * 2.2, y - wy);
+    ctx.quadraticCurveTo(x - s * 0.8, y + s * 0.5, x, y);
+    ctx.quadraticCurveTo(x + s * 0.8, y + s * 0.5, x + s * 2.2, y - wy);
     ctx.stroke();
-    const lx=x+H*0.028,ly=top+H*0.004;
-    const g=ctx.createRadialGradient(lx,ly,1,lx,ly,H*0.05);
-    g.addColorStop(0,'rgba(255,214,150,0.50)');g.addColorStop(1,'rgba(255,214,150,0)');
-    ctx.fillStyle=g;ctx.beginPath();ctx.arc(lx,ly,H*0.05,0,TAU);ctx.fill();
-    ctx.fillStyle='#ffd9a0';ctx.beginPath();ctx.arc(lx,ly,Math.max(1.5,H*0.003),0,TAU);ctx.fill();
-  });
-}
-function drawBushes(){
-  const P=800,off=(worldX*0.80)%P;
-  wrapTiles(off,P,tx=>{
-    for(const b of bushes){
-      const x=tx+b.x,base=b.base*H;
-      if(b.tuft){
-        ctx.strokeStyle='#241d3e';ctx.lineWidth=1.5;ctx.lineCap='round';
-        const h=(0.012+b.s*0.01)*H;
+  }
+
+  function drawBirds() {
+    tileLayer(0.30, W * 0.35, function (sx, i) {
+      if (ih(i * 17 + 5) < 0.45) return;
+      var bx = sx + ih(i * 3) * W * 0.35 * 0.5;
+      var by = H * (0.15 + ih(i * 7) * 0.2);
+      var s = H * (0.006 + ih(i * 11) * 0.006);
+      var flap = Math.sin(state.time * 6 + i) * 0.6;
+      drawBird(bx, by, s, flap);
+    });
+  }
+
+  function drawHills() {
+    tileLayer(0.45, W * 0.4, function (sx, i) {
+      var hw = W * 0.4 * (0.7 + ih(i * 5) * 0.6);
+      var hh = H * (0.05 + ih(i * 9) * 0.09);
+      ctx.fillStyle = 'rgba(122,96,58,' + (0.5 + ih(i) * 0.3) + ')';
+      ctx.beginPath();
+      ctx.ellipse(sx + W * 0.2, groundY, hw, hh, 0, Math.PI, 2 * Math.PI);
+      ctx.fill();
+    });
+  }
+
+  function drawTree(x, baseY, h, type) {
+    var trunkW = h * 0.12;
+    ctx.fillStyle = '#3a2f26';
+    ctx.fillRect(x - trunkW / 2, baseY - h * 0.5, trunkW, h * 0.5);
+    if (type === 'pine') {
+      ctx.fillStyle = '#2f4a30';
+      for (var k = 0; k < 3; k++) {
+        var ly = baseY - h * 0.45 - k * h * 0.22;
+        var lw = h * (0.5 - k * 0.12);
         ctx.beginPath();
-        for(let k=-2;k<=2;k++){ctx.moveTo(x,base);ctx.quadraticCurveTo(x+k*2,base-h*0.6,x+k*3.5,base-h);}
-        ctx.stroke();
-      }else{
-        ctx.fillStyle='#201a3a';
-        const h=(0.014+b.s*0.012)*H;
-        ctx.beginPath();
-        ctx.arc(x-h*0.5,base-h*0.5,h*0.55,0,TAU);
-        ctx.arc(x,base-h*0.7,h*0.6,0,TAU);
-        ctx.arc(x+h*0.5,base-h*0.45,h*0.5,0,TAU);
+        ctx.moveTo(x - lw, ly);
+        ctx.lineTo(x, ly - h * 0.35);
+        ctx.lineTo(x + lw, ly);
+        ctx.closePath();
         ctx.fill();
       }
-    }
-  });
-}
-
-/* ---------- road ---------- */
-function drawRoad(){
-  ctx.fillStyle=roadGrad;ctx.fillRect(0,roadTop,W,roadBottom-roadTop);
-  const band=roadBottom-roadTop;
-  const g=ctx.createLinearGradient(0,roadTop,0,roadTop+band*0.3);
-  g.addColorStop(0,'rgba(255,150,80,0.10)');g.addColorStop(1,'rgba(255,150,80,0)');
-  ctx.fillStyle=g;ctx.fillRect(0,roadTop,W,band*0.3);
-  ctx.fillStyle='rgba(220,200,180,0.25)';ctx.fillRect(0,roadTop,W,2);
-  // subtle asphalt patches, scrolling at road speed (leftward)
-  const P=1300,off=worldX%P;
-  wrapTiles(off,P,tx=>{
-    for(const p of patches){
-      ctx.fillStyle='rgba(0,0,0,'+p.a+')';
+    } else {
+      ctx.fillStyle = '#3a5a34';
       ctx.beginPath();
-      ctx.ellipse(tx+p.x,roadTop+p.y*band,p.w*(W/1400),band*0.08,0,0,TAU);
+      ctx.arc(x, baseY - h * 0.65, h * 0.4, 0, 7);
       ctx.fill();
     }
-  });
-  // center dashes — SAME sign as every other layer: x = i*period - offset.
-  // worldX grows with time => offset grows => dashes move LEFT, matching the
-  // car's forward travel to the right.
-  const dashP=130,dashLen=72,off2=worldX%dashP;
-  ctx.fillStyle='rgba(240,222,180,0.85)';
-  const y=roadTop+band*0.52,h=Math.max(3,band*0.055);
-  for(let x=-off2-dashP;x<W+dashP;x+=dashP)roundRect(x,y-dashLen/2,dashLen,h,h/2),ctx.fill();
-}
+  }
 
-/* ---------- car ---------- */
-function drawWheel(x,y,r,angle){
-  ctx.fillStyle='#151119';
-  ctx.beginPath();ctx.arc(x,y,r,0,TAU);ctx.fill();
-  ctx.strokeStyle='rgba(255,255,255,0.05)';ctx.lineWidth=1.5;
-  ctx.beginPath();ctx.arc(x,y,r*0.97,0,TAU);ctx.stroke();
-  const rr=r*0.60;
-  const g=ctx.createRadialGradient(x-rr*0.35,y-rr*0.35,rr*0.1,x,y,rr);
-  g.addColorStop(0,'#a8a8b8');g.addColorStop(0.55,'#5c5c6c');g.addColorStop(1,'#3a3a48');
-  ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,rr,0,TAU);ctx.fill();
-  ctx.save();
-  ctx.translate(x,y);ctx.rotate(angle); // angle = +worldX/r: clockwise = rolling right
-  ctx.fillStyle='#26262f';
-  for(let i=0;i<5;i++){
-    ctx.rotate(TAU/5);
+  function drawTrees() {
+    tileLayer(0.55, W * 0.28, function (sx, i) {
+      if (ih(i * 31 + 4) < 0.3) return;
+      var tx = sx + ih(i * 3) * W * 0.28 * 0.6;
+      var th = H * (0.06 + ih(i * 7) * 0.08);
+      drawTree(tx, groundY, th, ih(i * 11) > 0.5 ? 'pine' : 'round');
+    });
+  }
+
+  function drawRock(x, y, s) {
+    ctx.fillStyle = '#6a5a4a';
     ctx.beginPath();
-    ctx.moveTo(0,-rr*0.18);
-    ctx.lineTo(rr*0.9,-rr*0.34);
-    ctx.lineTo(rr*0.95,0);
-    ctx.lineTo(rr*0.9,rr*0.34);
-    ctx.lineTo(0,rr*0.18);
-    ctx.closePath();ctx.fill();
+    ctx.moveTo(x - s, y);
+    ctx.lineTo(x - s * 0.5, y - s);
+    ctx.lineTo(x + s * 0.4, y - s * 0.9);
+    ctx.lineTo(x + s, y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    ctx.beginPath();
+    ctx.moveTo(x - s * 0.5, y - s);
+    ctx.lineTo(x + s * 0.4, y - s * 0.9);
+    ctx.lineTo(x + s * 0.1, y - s * 0.4);
+    ctx.closePath();
+    ctx.fill();
   }
-  ctx.restore();
-  ctx.fillStyle='#b8b8c4';ctx.beginPath();ctx.arc(x,y,rr*0.2,0,TAU);ctx.fill();
-  ctx.fillStyle='#55555f';ctx.beginPath();ctx.arc(x,y,rr*0.09,0,TAU);ctx.fill();
-}
-function drawCar(){
-  const L=carL,r=carR,s=L/400;
-  const cx=carX+Math.sin(worldX*0.003)*1.2;
-  const gy=groundY;
-  const bob=Math.sin(worldX*0.012)*1.3+Math.sin(worldX*0.0061+1.7)*0.9; // suspension
-  const pitch=Math.sin(worldX*0.009+0.6)*0.0045+Math.sin(worldX*0.0043+2.1)*0.003;
-  const wheelAngle=worldX/r;
-  const rw=cx-L*0.30,fw=cx+L*0.30;
-  const archR=r*1.22,a0=Math.asin(0.5/1.22),offx=archR*Math.cos(a0);
 
-  // ground shadow
-  ctx.fillStyle='rgba(8,4,14,0.5)';
-  ctx.beginPath();ctx.ellipse(cx,gy+2,L*0.52,r*0.5,0,0,TAU);ctx.fill();
-  ctx.fillStyle='rgba(8,4,14,0.35)';
-  ctx.beginPath();ctx.ellipse(rw,gy+2,r*1.5,r*0.42,0,0,TAU);ctx.fill();
-  ctx.beginPath();ctx.ellipse(fw,gy+2,r*1.5,r*0.42,0,0,TAU);ctx.fill();
-
-  // headlight beam (in front of the body, toward the sun)
-  const bl=L*1.05;
-  let g=ctx.createLinearGradient(cx+198*s,0,cx+198*s+bl,0);
-  g.addColorStop(0,'rgba(255,226,170,0.14)');g.addColorStop(1,'rgba(255,226,170,0)');
-  ctx.fillStyle=g;
-  ctx.beginPath();
-  ctx.moveTo(cx+196*s,gy-68*s);
-  ctx.lineTo(cx+198*s+bl,gy-96*s);
-  ctx.lineTo(cx+198*s+bl,gy-6*s);
-  ctx.lineTo(cx+196*s,gy-50*s);
-  ctx.closePath();ctx.fill();
-
-  // ---- body (bobs with suspension; wheels stay on the road) ----
-  ctx.save();
-  ctx.translate(cx,gy+bob);ctx.rotate(pitch);ctx.translate(-cx,-gy);
-  const bx=x=>cx+x*s,by=y=>gy+y*s;
-
-  // wheel-well shadows (follow the body)
-  ctx.fillStyle='rgba(10,6,14,0.9)';
-  ctx.beginPath();ctx.arc(rw,gy-r,archR,0,TAU);ctx.fill();
-  ctx.beginPath();ctx.arc(fw,gy-r,archR,0,TAU);ctx.fill();
-
-  // body silhouette
-  ctx.beginPath();
-  ctx.moveTo(bx(-196),by(-17));
-  ctx.bezierCurveTo(bx(-200),by(-30),bx(-201),by(-44),bx(-197),by(-49));
-  ctx.bezierCurveTo(bx(-193),by(-65),bx(-189),by(-75),bx(-183),by(-79));
-  ctx.bezierCurveTo(bx(-167),by(-83),bx(-157),by(-84),bx(-146),by(-84));
-  ctx.bezierCurveTo(bx(-118),by(-88),bx(-101),by(-106),bx(-86),by(-126));
-  ctx.bezierCurveTo(bx(-58),by(-130),bx(22),by(-131),bx(58),by(-128));
-  ctx.bezierCurveTo(bx(92),by(-124),bx(110),by(-104),bx(118),by(-87));
-  ctx.bezierCurveTo(bx(142),by(-85),bx(162),by(-82),bx(178),by(-80));
-  ctx.bezierCurveTo(bx(189),by(-79),bx(195),by(-76),bx(197),by(-70));
-  ctx.bezierCurveTo(bx(200),by(-56),bx(200),by(-30),bx(197),by(-17));
-  ctx.lineTo(fw+offx,by(-17));
-  ctx.arc(fw,gy-r,archR,a0,Math.PI-a0,true);
-  ctx.lineTo(rw+offx,by(-17));
-  ctx.arc(rw,gy-r,archR,a0,Math.PI-a0,true);
-  ctx.closePath();
-  const bg=ctx.createLinearGradient(bx(-196),by(-128),bx(196),by(0));
-  bg.addColorStop(0,'#6e2836');bg.addColorStop(0.45,'#a8434a');bg.addColorStop(0.8,'#cf6a50');bg.addColorStop(1,'#e88a58');
-  ctx.fillStyle=bg;ctx.fill();
-
-  // lower-body shading + crease, clipped to the body
-  ctx.save();ctx.clip();
-  const lg=ctx.createLinearGradient(0,by(-60),0,by(-17));
-  lg.addColorStop(0,'rgba(0,0,0,0)');lg.addColorStop(1,'rgba(20,6,16,0.35)');
-  ctx.fillStyle=lg;ctx.fillRect(bx(-200),by(-60),400*s,45*s);
-  ctx.strokeStyle='rgba(255,220,180,0.10)';ctx.lineWidth=1.2;
-  ctx.beginPath();ctx.moveTo(bx(-184),by(-68));ctx.lineTo(bx(196),by(-64));ctx.stroke();
-  ctx.restore();
-
-  // sunset rim light along the top edge
-  ctx.strokeStyle='rgba(255,196,130,0.30)';ctx.lineWidth=1.6;
-  ctx.beginPath();
-  ctx.moveTo(bx(-183),by(-79));
-  ctx.bezierCurveTo(bx(-167),by(-83),bx(-157),by(-84),bx(-146),by(-84));
-  ctx.bezierCurveTo(bx(-118),by(-88),bx(-101),by(-106),bx(-86),by(-126));
-  ctx.bezierCurveTo(bx(-58),by(-130),bx(22),by(-131),bx(58),by(-128));
-  ctx.bezierCurveTo(bx(92),by(-124),bx(110),by(-104),bx(118),by(-87));
-  ctx.stroke();
-
-  // windows with sunset reflection
-  function glass(){
-    const wg=ctx.createLinearGradient(0,by(-124),0,by(-86));
-    wg.addColorStop(0,'#f2a468');wg.addColorStop(0.5,'#b06a74');wg.addColorStop(1,'#4e3a66');
-    ctx.fillStyle=wg;ctx.fill();
+  function drawBush(x, y, s) {
+    ctx.fillStyle = '#4a5a34';
+    ctx.beginPath();
+    ctx.arc(x - s * 0.5, y - s * 0.4, s * 0.6, 0, 7);
+    ctx.arc(x + s * 0.5, y - s * 0.4, s * 0.6, 0, 7);
+    ctx.arc(x, y - s * 0.7, s * 0.7, 0, 7);
+    ctx.fill();
   }
-  ctx.beginPath();
-  ctx.moveTo(bx(-141),by(-87));ctx.lineTo(bx(-90),by(-121));ctx.lineTo(bx(-27),by(-123));ctx.lineTo(bx(-27),by(-87));ctx.closePath();
-  glass();
-  ctx.beginPath();
-  ctx.moveTo(bx(-5),by(-123));ctx.lineTo(bx(53),by(-123));ctx.lineTo(bx(111),by(-90));ctx.lineTo(bx(-5),by(-87));ctx.closePath();
-  glass();
-  // glass streaks
-  ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(bx(-141),by(-87));ctx.lineTo(bx(-90),by(-121));ctx.lineTo(bx(-27),by(-123));ctx.lineTo(bx(-27),by(-87));ctx.closePath();
-  ctx.moveTo(bx(-5),by(-123));ctx.lineTo(bx(53),by(-123));ctx.lineTo(bx(111),by(-90));ctx.lineTo(bx(-5),by(-87));ctx.closePath();
-  ctx.clip();
-  ctx.strokeStyle='rgba(255,255,255,0.14)';ctx.lineWidth=6*s;
-  ctx.beginPath();ctx.moveTo(bx(-60),by(-130));ctx.lineTo(bx(-95),by(-80));ctx.stroke();
-  ctx.beginPath();ctx.moveTo(bx(40),by(-130));ctx.lineTo(bx(5),by(-80));ctx.stroke();
-  ctx.restore();
 
-  // door lines + handles + mirror
-  ctx.strokeStyle='rgba(30,10,20,0.4)';ctx.lineWidth=1.4*s;
-  ctx.beginPath();ctx.moveTo(bx(-15),by(-86));ctx.lineTo(bx(-13),by(-19));ctx.stroke();
-  ctx.beginPath();ctx.moveTo(bx(45),by(-86));ctx.lineTo(bx(47),by(-19));ctx.stroke();
-  ctx.fillStyle='rgba(230,200,170,0.5)';
-  roundRect(bx(-56),by(-73),16*s,4*s,2*s);ctx.fill();
-  roundRect(bx(6),by(-73),16*s,4*s,2*s);ctx.fill();
-  ctx.fillStyle='#8a3a40';
-  ctx.beginPath();
-  ctx.moveTo(bx(112),by(-95));
-  ctx.quadraticCurveTo(bx(124),by(-99),bx(126),by(-92));
-  ctx.quadraticCurveTo(bx(124),by(-86),bx(113),by(-88));
-  ctx.closePath();ctx.fill();
-
-  // headlight + taillight
-  ctx.fillStyle='#ffedc8';
-  ctx.beginPath();ctx.ellipse(bx(191),by(-63),7*s,4.5*s,-0.15,0,TAU);ctx.fill();
-  const hg=ctx.createRadialGradient(bx(191),by(-63),1,bx(191),by(-63),26*s);
-  hg.addColorStop(0,'rgba(255,240,200,0.5)');hg.addColorStop(1,'rgba(255,240,200,0)');
-  ctx.fillStyle=hg;ctx.beginPath();ctx.arc(bx(191),by(-63),26*s,0,TAU);ctx.fill();
-  ctx.fillStyle='#ff5040';
-  roundRect(bx(-199),by(-62),5*s,9*s,2*s);ctx.fill();
-  const tg=ctx.createRadialGradient(bx(-197),by(-57),1,bx(-197),by(-57),20*s);
-  tg.addColorStop(0,'rgba(255,70,50,0.4)');tg.addColorStop(1,'rgba(255,70,50,0)');
-  ctx.fillStyle=tg;ctx.beginPath();ctx.arc(bx(-197),by(-57),20*s,0,TAU);ctx.fill();
-  ctx.restore(); // end body transform
-
-  // wheels — fixed to the road, spinning with the true travel distance
-  drawWheel(rw,gy-r,r,wheelAngle);
-  drawWheel(fw,gy-r,r,wheelAngle);
-}
-
-/* ---------- foreground strip (closest layer, fastest) ---------- */
-function drawForeground(){
-  ctx.fillStyle=foreGrad;ctx.fillRect(0,roadBottom,W,H-roadBottom);
-  ctx.fillStyle='rgba(255,170,100,0.08)';ctx.fillRect(0,roadBottom,W,2);
-  const P=640,off=(worldX*1.3)%P;
-  wrapTiles(off,P,tx=>{
-    for(const f of fore){
-      const x=tx+f.x,base=roadBottom+(H-roadBottom)*0.55,h=(0.02+f.s*0.02)*H;
-      if(f.tuft){
-        ctx.strokeStyle='#2a2145';ctx.lineWidth=2;ctx.lineCap='round';
-        ctx.beginPath();
-        for(let k=-2;k<=2;k++){ctx.moveTo(x,base);ctx.quadraticCurveTo(x+k*2.5,base-h*0.6,x+k*4,base-h);}
-        ctx.stroke();
-      }else{
-        ctx.fillStyle='#241d3c';
-        ctx.beginPath();ctx.ellipse(x,base+h*0.3,h*0.5,h*0.3,0,0,TAU);ctx.fill();
-      }
+  function drawGrassTuft(x, y, s) {
+    ctx.strokeStyle = '#6a7a3a';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    for (var k = -1; k <= 1; k++) {
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.quadraticCurveTo(x + k * s * 0.3, y - s * 0.6, x + k * s * 0.5, y - s);
+      ctx.stroke();
     }
-  });
-}
+  }
 
-/* ---------- main loop ---------- */
-let last=performance.now();
-function frame(now){
-  const dt=Math.min((now-last)/1000,0.05);last=now;
-  worldSpeed=Math.max(150,W*0.19);
-  worldX+=worldSpeed*dt;
+  function drawRoadside() {
+    tileLayer(0.8, W * 0.22, function (sx, i) {
+      var r = ih(i * 41 + 6);
+      var rx = sx + ih(i * 3) * W * 0.22 * 0.7;
+      var s = H * (0.02 + ih(i * 7) * 0.03);
+      if (r < 0.4) drawRock(rx, groundY, s);
+      else if (r < 0.75) drawBush(rx, groundY, s);
+      else drawGrassTuft(rx, groundY, s);
+    });
+  }
 
-  // sky
-  ctx.fillStyle=skyGrad;ctx.fillRect(0,0,W,horizonY+2);
-  drawSun();
-  drawClouds(dt);
-  // far scenery (slowest) — mountains, then hills
-  drawRidge(0.05,2400,ridgeFar ,horizonY+2,H*0.21,'#6d5688','#54446f','rgba(255,180,120,0.25)');
-  drawRidge(0.09,2000,ridgeNear,horizonY+5,H*0.13,'#52426f','#3e3158','rgba(255,170,110,0.18)');
-  drawRidge(0.14,1800,ridgeHill,horizonY+9,H*0.07,'#3d3158','#2e2547',null);
-  // birds in front of the mountains
-  drawBirds(dt);
-  // ground
-  ctx.fillStyle=grassGrad;ctx.fillRect(0,horizonY,W,roadTop-horizonY);
-  drawTreeline();
-  drawHaze();
-  drawMidTrees();
-  drawPoles();
-  drawBushes();
-  // road + markings
-  drawRoad();
-  // car
-  drawCar();
-  // nearest strip
-  drawForeground();
-  // cinematic vignette
-  ctx.fillStyle=vignette;ctx.fillRect(0,0,W,H);
+  function drawGround() {
+    var grd = ctx.createLinearGradient(0, groundY, 0, H);
+    grd.addColorStop(0, '#8a6a44');
+    grd.addColorStop(0.15, '#a5825a');
+    grd.addColorStop(1, '#6a4f34');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, groundY, W, H - groundY);
 
+    // grass edge
+    ctx.fillStyle = '#5a6a34';
+    ctx.fillRect(0, groundY - 2, W, 4);
+
+    // lighter run band
+    ctx.fillStyle = 'rgba(230,200,150,0.15)';
+    ctx.fillRect(0, groundY + (H - groundY) * 0.1, W, (H - groundY) * 0.35);
+
+    // scrolling dashes
+    var dashT = W * 0.12;
+    ctx.fillStyle = 'rgba(240,220,180,0.25)';
+    tileLayer(1.0, dashT, function (sx, i) {
+      ctx.fillRect(sx, groundY + (H - groundY) * 0.28, dashT * 0.5, 3);
+    });
+
+    // pebbles + grass blades
+    tileLayer(1.0, W * 0.16, function (sx, i) {
+      var r = ih(i * 53 + 8);
+      var px = sx + ih(i * 3) * W * 0.16 * 0.8;
+      var py = groundY + (H - groundY) * (0.15 + ih(i * 7) * 0.7);
+      if (r < 0.5) {
+        ctx.fillStyle = 'rgba(90,70,50,' + (0.4 + ih(i) * 0.4) + ')';
+        ctx.beginPath();
+        ctx.ellipse(px, py, 3 + ih(i * 5) * 5, 2 + ih(i * 9) * 3, 0, 0, 7);
+        ctx.fill();
+      } else {
+        ctx.strokeStyle = 'rgba(90,110,60,' + (0.5 + ih(i) * 0.4) + ')';
+        ctx.lineWidth = 1.5;
+        var gh = 4 + ih(i * 11) * 8;
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.lineTo(px - 2, py - gh);
+        ctx.moveTo(px, py);
+        ctx.lineTo(px + 2, py - gh * 0.8);
+        ctx.stroke();
+      }
+    });
+  }
+
+  function drawShadows() {
+    var airH = groundY - state.dinoY;
+    var shScale = Math.max(0.4, 1 - airH / (H * 0.3));
+    var dw = state.ducking ? dinoDuckW : dinoStandW;
+    ctx.fillStyle = 'rgba(30,20,15,0.25)';
+    ctx.beginPath();
+    ctx.ellipse(dinoX + dw / 2, groundY + 6, dw * 0.5 * shScale, 6 * shScale, 0, 0, 7);
+    ctx.fill();
+
+    for (var i = 0; i < state.obstacles.length; i++) {
+      var o = state.obstacles[i];
+      if (o.sx > W || o.sx + o.w < 0) continue;
+      if (o.type === 'branch') continue;
+      ctx.fillStyle = 'rgba(30,20,15,0.2)';
+      ctx.beginPath();
+      ctx.ellipse(o.sx + o.w / 2, groundY + 6, o.w * 0.6, 5, 0, 0, 7);
+      ctx.fill();
+    }
+  }
+
+  // ---------- obstacles ----------
+  function drawHurdle(o) {
+    var x = o.sx, y = groundY - o.h, w = o.w, h = o.h;
+    ctx.fillStyle = '#4a6a3a';
+    roundRect(x, y, w, h, w * 0.3);
+    ctx.fill();
+    // arms
+    roundRect(x - w * 0.45, y + h * 0.3, w * 0.55, h * 0.16, h * 0.08);
+    ctx.fill();
+    roundRect(x + w - w * 0.1, y + h * 0.45, w * 0.55, h * 0.16, h * 0.08);
+    ctx.fill();
+    // highlight
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fillRect(x + w * 0.2, y, w * 0.18, h);
+  }
+
+  function drawTall(o) {
+    var x = o.sx, y = groundY - o.h, w = o.w, h = o.h;
+    ctx.fillStyle = '#7a6a58';
+    ctx.beginPath();
+    ctx.moveTo(x, groundY);
+    ctx.lineTo(x + w * 0.15, y + h * 0.3);
+    ctx.lineTo(x + w * 0.5, y);
+    ctx.lineTo(x + w * 0.85, y + h * 0.25);
+    ctx.lineTo(x + w, groundY);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    ctx.beginPath();
+    ctx.moveTo(x + w * 0.5, y);
+    ctx.lineTo(x + w * 0.85, y + h * 0.25);
+    ctx.lineTo(x + w * 0.6, y + h * 0.5);
+    ctx.lineTo(x + w * 0.4, y + h * 0.35);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawBranch(o) {
+    var gap = o.gap, solidH = o.solidH;
+    var yTop = groundY - gap - solidH;
+    var x = o.sx, w = o.w;
+    ctx.strokeStyle = '#6a4a34';
+    ctx.lineWidth = solidH * 0.35;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x + w, yTop + solidH * 0.5);
+    ctx.lineTo(x, yTop + solidH * 0.5);
+    ctx.stroke();
+    ctx.fillStyle = '#4a6a34';
+    for (var k = 0; k < 5; k++) {
+      var lx = x + (k + 0.5) / 5 * w;
+      var ly = yTop + solidH * 0.5;
+      var ls = solidH * (0.5 + ih(o.worldX + k) * 0.4);
+      ctx.beginPath();
+      ctx.ellipse(lx, ly, ls, ls * 0.6, 0, 0, 7);
+      ctx.fill();
+    }
+    ctx.fillStyle = '#3f5f2e';
+    for (var j = 0; j < 4; j++) {
+      var lx2 = x + (j + 0.5) / 4 * w;
+      var ly2 = yTop + solidH * 0.8;
+      var ls2 = solidH * 0.4;
+      ctx.beginPath();
+      ctx.ellipse(lx2, ly2, ls2, ls2 * 0.5, 0, 0, 7);
+      ctx.fill();
+    }
+  }
+
+  function drawObstacles() {
+    for (var i = 0; i < state.obstacles.length; i++) {
+      var o = state.obstacles[i];
+      if (o.sx > W + 60 || o.sx + o.w < -60) continue;
+      if (o.type === 'hurdle') drawHurdle(o);
+      else if (o.type === 'tall') drawTall(o);
+      else drawBranch(o);
+    }
+  }
+
+  // ---------- dino ----------
+  function drawLegs(x, feetY, w, h, phase) {
+    var hipY = feetY - h * 0.5;
+    var hipX1 = x + w * 0.35;
+    var hipX2 = x + w * 0.6;
+    var legLen = h * 0.5;
+    var swing = Math.sin(phase);
+    var swing2 = Math.sin(phase + Math.PI);
+    var air = !state.onGround;
+    ctx.strokeStyle = '#2c323e';
+    ctx.lineWidth = h * 0.14;
+    ctx.lineCap = 'round';
+
+    var f1x = hipX1 + swing * legLen * 0.5;
+    var f1y = feetY;
+    if (air) { f1x = hipX1 + legLen * 0.2; f1y = feetY - legLen * 0.3; }
+    ctx.beginPath(); ctx.moveTo(hipX1, hipY); ctx.lineTo(f1x, f1y); ctx.stroke();
+    ctx.fillStyle = '#2c323e';
+    ctx.beginPath(); ctx.ellipse(f1x, f1y, h * 0.09, h * 0.05, 0, 0, 7); ctx.fill();
+
+    var f2x = hipX2 + swing2 * legLen * 0.5;
+    var f2y = feetY;
+    if (air) { f2x = hipX2 - legLen * 0.1; f2y = feetY - legLen * 0.4; }
+    ctx.beginPath(); ctx.moveTo(hipX2, hipY); ctx.lineTo(f2x, f2y); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(f2x, f2y, h * 0.09, h * 0.05, 0, 0, 7); ctx.fill();
+  }
+
+  function drawDino() {
+    var duck = state.ducking;
+    var air = !state.onGround;
+    var h = duck ? dinoDuckH : dinoStandH;
+    var w = duck ? dinoDuckW : dinoStandW;
+    var x = dinoX;
+    var feetY = state.dinoY;
+    var phase = state.distance * 0.03;
+    var bob = (air ? 0 : Math.sin(phase * 2) * h * 0.03);
+    var bodyY = feetY - h + bob;
+
+    var bodyCol = '#333a47';
+    var bellyCol = '#59637a';
+    var headCol = '#3a4250';
+
+    ctx.save();
+    if (duck) {
+      // long low crouch
+      roundRect(x, feetY - h, w, h * 0.7, h * 0.3);
+      ctx.fillStyle = bodyCol; ctx.fill();
+      // head forward + lower
+      var hx = x + w * 0.78, hy = feetY - h * 0.95;
+      roundRect(hx, hy, w * 0.35, h * 0.5, h * 0.2);
+      ctx.fillStyle = headCol; ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(hx + w * 0.22, hy + h * 0.18, h * 0.09, 0, 7); ctx.fill();
+      ctx.fillStyle = '#1a1a1a';
+      ctx.beginPath(); ctx.arc(hx + w * 0.24, hy + h * 0.18, h * 0.045, 0, 7); ctx.fill();
+      drawLegs(x, feetY, w, h, phase);
+      // tail
+      ctx.fillStyle = bodyCol;
+      ctx.beginPath();
+      ctx.moveTo(x + w * 0.1, feetY - h * 0.5);
+      ctx.quadraticCurveTo(x - w * 0.4, feetY - h * 0.6, x - w * 0.5, feetY - h * 0.3);
+      ctx.quadraticCurveTo(x - w * 0.1, feetY - h * 0.2, x + w * 0.1, feetY - h * 0.2);
+      ctx.closePath(); ctx.fill();
+    } else {
+      // tail (back)
+      ctx.fillStyle = bodyCol;
+      ctx.beginPath();
+      ctx.moveTo(x + w * 0.1, bodyY + h * 0.5);
+      ctx.quadraticCurveTo(x - w * 0.5, bodyY + h * 0.3, x - w * 0.6, bodyY + h * 0.05);
+      ctx.quadraticCurveTo(x - w * 0.2, bodyY + h * 0.5, x + w * 0.1, bodyY + h * 0.72);
+      ctx.closePath(); ctx.fill();
+      // body
+      roundRect(x, bodyY + h * 0.15, w, h * 0.55, w * 0.3);
+      ctx.fillStyle = bodyCol; ctx.fill();
+      // belly
+      roundRect(x + w * 0.1, bodyY + h * 0.45, w * 0.7, h * 0.3, w * 0.2);
+      ctx.fillStyle = bellyCol; ctx.fill();
+      // spine bumps
+      ctx.fillStyle = 'rgba(255,220,160,0.25)';
+      for (var b = 0; b < 4; b++) {
+        ctx.beginPath();
+        ctx.arc(x + w * (0.2 + b * 0.18), bodyY + h * 0.16, w * 0.05, 0, 7);
+        ctx.fill();
+      }
+      // head (front, up)
+      var hx = x + w * 0.7, hy = bodyY - h * 0.05;
+      roundRect(hx, hy, w * 0.5, h * 0.4, w * 0.18);
+      ctx.fillStyle = headCol; ctx.fill();
+      roundRect(hx + w * 0.3, hy + h * 0.12, w * 0.28, h * 0.22, w * 0.1);
+      ctx.fillStyle = headCol; ctx.fill();
+      // eye
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(hx + w * 0.28, hy + h * 0.14, h * 0.08, 0, 7); ctx.fill();
+      ctx.fillStyle = '#1a1a1a';
+      ctx.beginPath(); ctx.arc(hx + w * 0.3, hy + h * 0.14, h * 0.04, 0, 7); ctx.fill();
+      // arm
+      ctx.fillStyle = bodyCol;
+      ctx.fillRect(hx + w * 0.1, bodyY + h * 0.5, w * 0.12, h * 0.18);
+      // legs
+      drawLegs(x, feetY, w, h, phase);
+    }
+    ctx.restore();
+  }
+
+  function drawDust() {
+    for (var i = 0; i < state.dust.length; i++) {
+      var p = state.dust[i];
+      var a = Math.max(0, p.life / p.max) * 0.5;
+      ctx.fillStyle = 'rgba(200,180,150,' + a + ')';
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 7); ctx.fill();
+    }
+  }
+
+  // ---------- UI ----------
+  function centerText(t, y, size) {
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold ' + Math.floor(size) + 'px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur = 10;
+    ctx.fillText(t, W / 2, y);
+    ctx.shadowBlur = 0;
+  }
+
+  function drawUI() {
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'top';
+    ctx.font = 'bold ' + Math.floor(H * 0.045) + 'px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.shadowColor = 'rgba(0,0,0,0.4)';
+    ctx.shadowBlur = 8;
+    var s = String(state.score);
+    while (s.length < 5) s = '0' + s;
+    ctx.fillText(s, W - 24, 24);
+    ctx.font = 'bold ' + Math.floor(H * 0.022) + 'px system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    var hs = String(state.high);
+    while (hs.length < 5) hs = '0' + hs;
+    ctx.fillText('HI ' + hs, W - 24, 24 + H * 0.05);
+    ctx.shadowBlur = 0;
+
+    if (state.mode === 'ready') {
+      centerText('DINO RUN', H * 0.35, H * 0.07);
+      centerText('Press  SPACE / UP  to start', H * 0.45, H * 0.03);
+      centerText('UP = jump    DOWN = duck', H * 0.5, H * 0.025);
+    } else if (state.mode === 'gameover') {
+      centerText('GAME OVER', H * 0.38, H * 0.07);
+      centerText('Score ' + state.score, H * 0.48, H * 0.035);
+      centerText('Press SPACE or ENTER to restart', H * 0.55, H * 0.028);
+    }
+  }
+
+  function drawVignette() {
+    var g = ctx.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, H * 0.85);
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(1, 'rgba(20,10,30,0.35)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // ---------- render ----------
+  function render() {
+    ctx.clearRect(0, 0, W, H);
+    var shx = 0, shy = 0;
+    if (state.shakeTime > 0) {
+      var m = state.shake * (state.shakeTime / 0.5) * 8;
+      shx = (Math.random() * 2 - 1) * m;
+      shy = (Math.random() * 2 - 1) * m;
+    }
+    ctx.save();
+    ctx.translate(shx, shy);
+    drawSky();
+    drawClouds();
+    drawMountains();
+    drawBirds();
+    drawHills();
+    drawTrees();
+    drawRoadside();
+    drawGround();
+    drawShadows();
+    drawObstacles();
+    drawDino();
+    drawDust();
+    ctx.restore();
+    drawUI();
+    drawVignette();
+  }
+
+  // ---------- main loop ----------
+  var last = performance.now();
+  function frame(now) {
+    var dt = (now - last) / 1000;
+    last = now;
+    if (dt > 0.05) dt = 0.05;
+    update(dt);
+    render();
+    requestAnimationFrame(frame);
+  }
+
+  resize();
+  state.dinoY = groundY;
   requestAnimationFrame(frame);
-}
-requestAnimationFrame(frame);
-
-// tiny debug hook (harmless)
-window.__drive={get worldX(){return worldX;},get speed(){return worldSpeed;}};
+})();
 </script>
 </body>
 </html>
