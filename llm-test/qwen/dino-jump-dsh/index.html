@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>Dino Runner — Sunset Endless Run</title>
 <style>
   html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#241a4e;}
-  #game{display:block;width:100vw;height:100vh;user-select:none;-webkit-user-select:none;touch-action:none;}
+  #game{display:block;width:100vw;height:100vh;user-select:none;-webkit-user-select:none;touch-action:none;-webkit-touch-callout:none;}
 </style>
 </head>
 <body>
@@ -123,7 +123,71 @@ window.addEventListener('keyup', e => {
   if (c === 'ArrowUp' || c === 'KeyW')  { keys.up = false; if (dino.vy < -JUMP_V * 0.32) dino.vy = -JUMP_V * 0.32; }  // variable jump height
   else if (c === 'ArrowDown' || c === 'KeyS') { keys.down = false; }
 });
-window.addEventListener('blur', () => { keys.up = false; keys.down = false; });
+window.addEventListener('blur', () => { keys.up = false; keys.down = false; if (touch.active){ clearTimeout(touch.holdTimer); keys.down = false; touch.active = false; touch.pending = false; touch.duckHeld = false; } });
+
+/* ---------------- touch input ----------------
+   tap (quick release)   -> jump
+   swipe up              -> jump (immediate)
+   hold still ~200 ms    -> duck
+   swipe down            -> duck (immediate)
+   release               -> stand up / fast-fall off
+   Every handler calls preventDefault so the page never
+   scrolls, rubber-bands, or zooms. */
+const isTouch = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+const touch = { active: false, id: null, sx: 0, sy: 0, pending: false, duckHeld: false, holdTimer: 0 };
+const HOLD_MS = 200, SWIPE_PX = 24;
+function touchJump(){
+  if (state !== 'running') return;
+  if (dino.onGround) doJump(); else dino.jumpBuf = 0.12;   // jump buffering
+}
+function touchStart(e){
+  e.preventDefault();
+  audioInit();
+  if (touch.active) return;                    // ignore extra fingers
+  const tch = e.touches[0];
+  touch.active = true; touch.id = tch.identifier; touch.sx = tch.clientX; touch.sy = tch.clientY;
+  touch.pending = true; touch.duckHeld = false;
+  if (state === 'ready' || state === 'gameover'){ reset(); touch.pending = false; return; }  // restart consumes the tap
+  touch.holdTimer = setTimeout(() => {          // held still long enough -> duck
+    if (touch.active && touch.pending && !touch.duckHeld){ touch.pending = false; keys.down = true; touch.duckHeld = true; }
+  }, HOLD_MS);
+}
+function touchMove(e){
+  e.preventDefault();                          // stop page scroll / rubber-banding
+  if (!touch.active) return;
+  let tch = null;
+  for (let i = 0; i < e.touches.length; i++) if (e.touches[i].identifier === touch.id) tch = e.touches[i];
+  if (!tch) return;
+  const dy = tch.clientY - touch.sy;
+  if (touch.pending && dy > SWIPE_PX){         // swipe down -> duck now
+    touch.pending = false; clearTimeout(touch.holdTimer);
+    keys.down = true; touch.duckHeld = true;
+  } else if (touch.pending && dy < -SWIPE_PX){ // swipe up -> jump now
+    touch.pending = false; clearTimeout(touch.holdTimer);
+    touchJump();
+  } else if (!touch.duckHeld && dy > SWIPE_PX){ // finger still held after a jump -> drag down = fast-fall duck
+    clearTimeout(touch.holdTimer);
+    keys.down = true; touch.duckHeld = true;
+  } else if (touch.duckHeld && dy < -SWIPE_PX){ // swipe back up -> stand up
+    keys.down = false; touch.duckHeld = false;
+  }
+}
+function touchEnd(e){
+  e.preventDefault();
+  if (!touch.active) return;
+  let ended = false;
+  for (let i = 0; i < e.changedTouches.length; i++) if (e.changedTouches[i].identifier === touch.id) ended = true;
+  if (!ended) return;
+  clearTimeout(touch.holdTimer);
+  if (touch.pending) touchJump();              // quick tap -> jump
+  else if (touch.duckHeld){ keys.down = false; touch.duckHeld = false; }
+  touch.active = false; touch.pending = false; touch.duckHeld = false;
+}
+canvas.addEventListener('touchstart', touchStart, { passive: false });
+canvas.addEventListener('touchmove', touchMove, { passive: false });
+canvas.addEventListener('touchend', touchEnd, { passive: false });
+canvas.addEventListener('touchcancel', touchEnd, { passive: false });
+canvas.addEventListener('contextmenu', e => e.preventDefault());  // no long-press menu
 
 /* ---------------- score / speed / spawning ---------------- */
 function score()      { return Math.floor(distance / 10) + bonus; }
@@ -692,11 +756,11 @@ function drawHUD(){
     ctx.fillText('A sunset endless run', W / 2, H * 0.32 + 30);
     ctx.font = '600 15px "Segoe UI", system-ui, sans-serif';
     ctx.fillStyle = 'rgba(255,232,200,0.75)';
-    ctx.fillText('\u2191 / W  jump      \u2193 / S  duck', W / 2, H * 0.32 + 64);
+    ctx.fillText(isTouch ? 'Tap / swipe up: jump    Hold / swipe down: duck' : '\u2191 / W  jump      \u2193 / S  duck', W / 2, H * 0.32 + 64);
     const pulse = 0.55 + 0.45 * Math.sin(t * 4);
     ctx.fillStyle = 'rgba(255,240,210,' + pulse + ')';
     ctx.font = '700 19px "Segoe UI", system-ui, sans-serif';
-    ctx.fillText('Press SPACE to start', W / 2, H * 0.32 + 104);
+    ctx.fillText(isTouch ? 'Tap to start' : 'Press SPACE to start', W / 2, H * 0.32 + 104);
   }
   if (state === 'gameover'){
     ctx.textAlign = 'center';
@@ -715,14 +779,14 @@ function drawHUD(){
     const pulse = 0.55 + 0.45 * Math.sin(t * 4);
     ctx.fillStyle = 'rgba(255,240,210,' + pulse + ')';
     ctx.font = '700 18px "Segoe UI", system-ui, sans-serif';
-    ctx.fillText('Press SPACE or ENTER to restart', W / 2, H * 0.34 + 112);
+    ctx.fillText(isTouch ? 'Tap to restart' : 'Press SPACE or ENTER to restart', W / 2, H * 0.34 + 112);
   }
   if (state === 'running' && hintT > 0){
     const a = clamp(hintT, 0, 1) * 0.6;
     ctx.textAlign = 'left';
     ctx.font = '600 13px "Segoe UI", system-ui, sans-serif';
     ctx.fillStyle = 'rgba(255,232,200,' + a + ')';
-    ctx.fillText('\u2191 jump   \u2193 duck', 16, H - 20);
+    ctx.fillText(isTouch ? 'tap: jump    hold / swipe down: duck' : '\u2191 jump   \u2193 duck', 16, H - 20);
   }
 }
 function render(){
