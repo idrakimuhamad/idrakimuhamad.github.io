@@ -217,9 +217,12 @@ function makeOb(type, x){
 }
 function spawnAt(x){
   const p = pickPattern(diff());
-  const o = makeOb(p, x);
-  obstacles.push(o);
-  if (p === 'combo') obstacles.push(makeOb('branch', x + 170 + speed * 0.55));
+  if (p === 'combo'){ // jump the cactus, then duck the branch
+    obstacles.push(makeOb('cactusS', x));
+    obstacles.push(makeOb('branch', x + 170 + speed * 0.55));
+    return;
+  }
+  obstacles.push(makeOb(p, x));
 }
 
 /* ---------------- particles / floating text ---------------- */
