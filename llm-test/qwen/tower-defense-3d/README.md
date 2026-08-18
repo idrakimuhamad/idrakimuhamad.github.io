@@ -36,13 +36,13 @@ This folder itself is a GitHub Pages deploy — `index.html` + `assets/` +
 | Input | Action |
 | --- | --- |
 | Q / W / E / R / T | Select tower: Cannon / Machine Gun / Sniper / Frost / Missile |
-| Left click | Place selected tower / select a tower |
-| Right click (or Esc) | Cancel placement / deselect |
+| Left click / tap | Place selected tower / select a tower |
+| Right click | Cancel placement / deselect |
 | 1 / 2 / 3 | Game speed 1× / 2× / 4× |
-| Space | Pause / resume |
+| Space | Start the next wave early (bonus) |
 | D | Debug panel (spawn enemies, +money, skip wave, stats, overlays) |
-| Mouse wheel | Zoom |
-| Esc | Close menus / panels |
+| Mouse wheel / pinch | Zoom — anchored at the cursor (the point under it stays put) |
+| Esc | Close modal → cancel placing → deselect → pause menu (Settings) |
 
 Click a placed tower to open its panel: upgrade (up to level 4), sell (70%
 refund), and targeting mode (First / Last / Closest / Strongest / Weakest).
@@ -97,10 +97,10 @@ tower-defense-3d/
       enemies3d.ts      # per-kind InstancedMesh, tinting, health bars
       projectiles3d.ts  # pooled projectiles + trails
       particles3d.ts    # pooled THREE.Points (1400) + text sprites (120)
-      camera3d.ts       # fixed 3/4 view, scroll zoom, screen shake
+      camera3d.ts       # fixed 3/4 view, cursor-anchored zoom, auto-fit, shake
       debug3d.ts        # grid/path/range overlay lines
     ui/ui.ts            # DOM UI: HUD, build bar, tower panel, menus, settings
-    input/input.ts      # raycast picking + keyboard (identical to 2D)
+    input/input.ts      # raycast picking, touch/pinch, keyboard hotkeys
     audio/audio.ts      # procedural WebAudio SFX (port of the 2D synth)
     settings.ts         # localStorage settings + quality preset
   assets-src/models/    # compressed GLB sources (Draco + WebP, 0.29 MB)
@@ -113,10 +113,12 @@ tower-defense-3d/
 
 ## Technical notes
 
-- **Rendering** — three.js (WebGL2) with a fixed elevated 3/4 camera (the
-  whole 24×16 map is visible at default zoom; wheel zooms). ACES tone
-  mapping, shadow-mapped sun, custom sky dome, fog, and optional bloom
-  (High quality only).
+- **Rendering** — three.js (WebGL2) with a fixed elevated 3/4 camera. The
+  whole 24×16 map is auto-fitted to the window aspect (so portrait phones
+  see the full map), and wheel/pinch zoom is anchored at the cursor — the
+  ground point under it stays put while the view pans. ACES tone mapping,
+  shadow-mapped sun, custom sky dome, fog (synced to the camera fit distance),
+  and optional bloom (High quality only).
 - **Logic/renderer split** — `src/core/` has zero three.js/DOM imports and
   runs on a fixed 120 Hz timestep (accumulator, max 8 substeps/frame,
   1×/2×/4× speed). The renderer only reads state each frame, so the game

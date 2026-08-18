@@ -28,6 +28,7 @@ export class UI {
     this.buildDebugSpawnSelect();
     this.buildSettings();
     this.bind();
+    this.initDebugPanel();
     this.applyDifficultyButtons(settings.data.difficulty);
     this.updateSpeedButtons();
   }
@@ -241,6 +242,23 @@ export class UI {
       this.detach.push(() => el.removeEventListener(ev, fn));
     };
 
+    // Esc closes open modals BEFORE the Input handler can pause the game.
+    // Capture phase on window runs before Input's bubble-phase listener.
+    const onEscCapture = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (!$('modal-settings').classList.contains('hidden')) {
+        this.audio.play('click');
+        this.hideModal('modal-settings');
+        e.stopPropagation();
+      } else if (!$('modal-help').classList.contains('hidden')) {
+        this.audio.play('click');
+        this.hideModal('modal-help');
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener('keydown', onEscCapture, true);
+    this.detach.push(() => window.removeEventListener('keydown', onEscCapture, true));
+
     on('menu-start', 'click', () => {
       this.audio.unlock();
       this.audio.play('click');
@@ -334,10 +352,71 @@ export class UI {
     on('dp-clear', 'click', () => this.game.debugClearEnemies());
   }
 
+  // ---- debug panel: drag by title, collapse, small-screen default --------
+
+  private initDebugPanel(): void {
+    const panel = $('debug-panel');
+    const title = panel.querySelector('.dp-title') as HTMLElement;
+    const collapseBtn = $('dp-collapse') as HTMLButtonElement;
+
+    const setCollapsed = (collapsed: boolean) => {
+      panel.classList.toggle('collapsed', collapsed);
+      collapseBtn.textContent = collapsed ? '+' : '–';
+      collapseBtn.title = collapsed ? 'Expand debug panel' : 'Collapse debug panel';
+    };
+
+    const onCollapseClick = (e: MouseEvent) => {
+      e.stopPropagation();
+      setCollapsed(!panel.classList.contains('collapsed'));
+    };
+    collapseBtn.addEventListener('click', onCollapseClick);
+    this.detach.push(() => collapseBtn.removeEventListener('click', onCollapseClick));
+
+    let drag: { x: number; y: number; left: number; top: number } | null = null;
+    const onTitleDown = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      if ((e.target as HTMLElement).closest('#dp-collapse')) return;
+      const wrap = panel.parentElement!;
+      const pr = panel.getBoundingClientRect();
+      const wr = wrap.getBoundingClientRect();
+      drag = { x: e.clientX, y: e.clientY, left: pr.left - wr.left, top: pr.top - wr.top };
+      title.setPointerCapture(e.pointerId);
+      panel.classList.add('dragging');
+    };
+    const onTitleMove = (e: PointerEvent) => {
+      if (!drag) return;
+      const wrap = panel.parentElement!;
+      const left = Math.max(0, Math.min(drag.left + (e.clientX - drag.x), wrap.clientWidth - panel.offsetWidth));
+      const top = Math.max(0, Math.min(drag.top + (e.clientY - drag.y), wrap.clientHeight - panel.offsetHeight));
+      panel.style.left = `${left}px`;
+      panel.style.top = `${top}px`;
+    };
+    const onTitleUp = (e: PointerEvent) => {
+      if (!drag) return;
+      drag = null;
+      panel.classList.remove('dragging');
+      if (title.hasPointerCapture(e.pointerId)) title.releasePointerCapture(e.pointerId);
+    };
+    title.addEventListener('pointerdown', onTitleDown);
+    title.addEventListener('pointermove', onTitleMove);
+    title.addEventListener('pointerup', onTitleUp);
+    title.addEventListener('pointercancel', onTitleUp);
+    this.detach.push(
+      () => title.removeEventListener('pointerdown', onTitleDown),
+      () => title.removeEventListener('pointermove', onTitleMove),
+      () => title.removeEventListener('pointerup', onTitleUp),
+      () => title.removeEventListener('pointercancel', onTitleUp),
+    );
+
+    // On small screens the panel would cover most of the map: start collapsed.
+    if (window.innerWidth < 720) setCollapsed(true);
+  }
+
   private startGame(): void {
     const difficulty = this.settings.data.difficulty;
     this.hideModal('modal-settings');
     this.hideModal('modal-help');
+    this.renderer.resetCamera();
     this.game.start(difficulty);
   }
 

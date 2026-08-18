@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>Gridlock Defense 3D</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏰</text></svg>" />
-  <script type="module" crossorigin src="./assets/index-Bg702c4J.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-DODSi3Wo.css">
+  <script type="module" crossorigin src="./assets/index-a1Y9O_C-.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-oK4zv05F.css">
 </head>
 <body>
   <div id="app">
@@ -25,7 +25,7 @@
         <div class="hud-chip" id="chip-timer"><span class="chip-icon">⏱️</span><span id="hud-timer">–</span></div>
         <div class="hud-spacer"></div>
         <button id="btn-startwave" class="btn btn-primary" title="Start the next wave early for a bonus">▶ Start Wave</button>
-        <button id="btn-pause" class="btn" title="Pause / Resume (Space)">⏸</button>
+        <button id="btn-pause" class="btn" title="Pause / Resume (Esc)">⏸</button>
         <div class="speed-group">
           <button id="btn-s1" class="btn btn-speed" title="1x speed (1)">1×</button>
           <button id="btn-s2" class="btn btn-speed" title="2x speed (2)">2×</button>
@@ -59,19 +59,24 @@
       <!-- Toast -->
       <div id="toast" class="hidden"></div>
 
-      <!-- Debug panel -->
+      <!-- Debug panel (drag by the title bar, collapse with the – button) -->
       <div id="debug-panel" class="hidden">
-        <div class="dp-title">DEBUG</div>
-        <div id="dp-stats"></div>
-        <div class="dp-section">Tools</div>
-        <button id="dp-money" class="btn btn-small">+ $500</button>
-        <div class="dp-row">
-          <select id="dp-spawn-type"></select>
-          <button id="dp-spawn" class="btn btn-small">Spawn</button>
+        <div class="dp-title">
+          <span class="dp-title-text">DEBUG</span>
+          <button id="dp-collapse" class="dp-collapse-btn" title="Collapse / expand">–</button>
         </div>
-        <button id="dp-skipwave" class="btn btn-small">Skip to next wave</button>
-        <button id="dp-damage" class="btn btn-small">Base -10 HP</button>
-        <button id="dp-clear" class="btn btn-small">Clear enemies</button>
+        <div class="dp-body">
+          <div id="dp-stats"></div>
+          <div class="dp-section">Tools</div>
+          <button id="dp-money" class="btn btn-small">+ $500</button>
+          <div class="dp-row">
+            <select id="dp-spawn-type"></select>
+            <button id="dp-spawn" class="btn btn-small">Spawn</button>
+          </div>
+          <button id="dp-skipwave" class="btn btn-small">Skip to next wave</button>
+          <button id="dp-damage" class="btn btn-small">Base -10 HP</button>
+          <button id="dp-clear" class="btn btn-small">Clear enemies</button>
+        </div>
       </div>
     </div>
 
@@ -139,7 +144,7 @@
           <p><b>Building:</b> Pick a tower from the bottom bar, then left-click a grass tile. Right-click or Esc cancels. Hover shows range and validity.</p>
           <p><b>Towers:</b> Click a placed tower to upgrade it (3 upgrades), change targeting (First / Last / Closest / Strongest / Weakest), or sell it for 70% of invested money.</p>
           <p><b>Economy:</b> Earn money from kills, wave bonuses, and starting waves early. Spend on towers and upgrades.</p>
-          <p><b>Controls:</b> Left click place/select · Right click cancel · Scroll zoom · Space pause · 1/2/3 speed · D debug · Esc close/cancel.</p>
+          <p><b>Controls:</b> Left click / tap place/select · Right click cancel · Scroll or pinch zoom (toward the cursor) · Space start wave early · 1/2/3 speed · D debug · Esc pause / close / cancel.</p>
         </div>
       </div>
     </div>

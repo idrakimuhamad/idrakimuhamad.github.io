@@ -99,7 +99,10 @@ export class Renderer {
     this.scene.add(sky);
 
     // Subtle depth fade; color matches the sky horizon so the far edge blends in.
+    // Distances are synced to the camera fit distance in syncFog() so the map
+    // stays clear at any aspect (mobile backs the camera much further out).
     this.scene.fog = new THREE.Fog(0xcde2f5, 42, 115);
+    this.syncFog();
 
     // lights
     const hemi = new THREE.HemisphereLight(0xbcd8ff, 0x3a4a33, 0.75);
@@ -159,10 +162,36 @@ export class Renderer {
     this.gl.setSize(w, h, false);
     this.composer.setSize(w, h);
     this.camera3d.setAspect(w / h);
+    this.syncFog();
   }
 
-  zoom(deltaY: number): void {
-    this.camera3d.zoom(deltaY);
+  /**
+   * Keep the fog band just beyond the map's far corner so the playable area is
+   * always crisp. The camera backs off to `fitDistance` to frame the whole map;
+   * the far corner sits ~14.4u further (half the 24x16 diagonal), so start the
+   * fog there and fade it out over the next ~60u of sky.
+   */
+  private syncFog(): void {
+    const fog = this.scene.fog as THREE.Fog | null;
+    if (!fog) return;
+    const fit = this.camera3d.fitDistance;
+    fog.near = fit + 16;
+    fog.far = fit + 60;
+  }
+
+  /** Wheel zoom anchored at screen point `ndc` (-1..1). */
+  zoomBy(deltaY: number, ndc: THREE.Vector2): void {
+    this.camera3d.zoomBy(deltaY, ndc);
+  }
+
+  /** Pinch zoom: scale distance by `factor`, anchored at `ndc`. */
+  zoomScale(factor: number, ndc: THREE.Vector2): void {
+    this.camera3d.zoomScale(factor, ndc);
+  }
+
+  /** Reset to the default view (whole map, centered). */
+  resetCamera(): void {
+    this.camera3d.resetView();
   }
 
   setQuality(q: Quality): void {

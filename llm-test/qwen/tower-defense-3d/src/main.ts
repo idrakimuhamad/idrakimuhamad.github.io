@@ -37,24 +37,45 @@ new Input(game, canvas, renderer);
 
 ui.setState('menu');
 
-// ---- canvas sizing (same 960x640 aspect as the 2D game) --------------------
+// ---- canvas sizing ---------------------------------------------------------
+// Desktop: letterboxed 3:2 canvas (same aspect as the 2D game), capped at
+// 1280 wide. Small screens: the canvas fills whatever space the HUD/build
+// bar leave; the camera auto-fits the whole map to any aspect (Camera3D
+// .fitToAspect), so portrait phones get a tall play area instead of a tiny
+// letterboxed strip.
+
+const wrap = document.getElementById('game-wrap') as HTMLDivElement;
 
 function fitCanvas(): void {
-  const p = Math.min(window.innerWidth - 24, 1280);
-  const m = Math.max(300, window.innerHeight - 24 - 150);
-  const y = 960 / 640;
-  let w = p;
-  let h = w / y;
-  if (h > m) {
-    h = m;
-    w = h * y;
+  const narrow = window.innerWidth < 720;
+  if (narrow) {
+    wrap.style.height = '100%';
+    holder.style.width = '100%';
+    holder.style.height = '';
+    holder.style.flex = '1 1 auto';
+  } else {
+    wrap.style.height = '';
+    holder.style.flex = '';
+    const p = Math.min(window.innerWidth - 24, 1280);
+    const m = Math.max(300, window.innerHeight - 24 - 150);
+    const y = 960 / 640;
+    let w = p;
+    let h = w / y;
+    if (h > m) {
+      h = m;
+      w = h * y;
+    }
+    holder.style.width = `${w}px`;
+    holder.style.height = `${h}px`;
   }
-  holder.style.width = `${w}px`;
-  holder.style.height = `${h}px`;
   renderer.resize();
 }
 window.addEventListener('resize', fitCanvas);
 fitCanvas();
+
+// The holder's size also changes when the HUD/build bar appear (game start)
+// or the mobile URL bar shows/hides — keep the drawing buffer in sync.
+new ResizeObserver(() => renderer.resize()).observe(holder);
 
 // ---- audio unlock on first interaction -------------------------------------
 

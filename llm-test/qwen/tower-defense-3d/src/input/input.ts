@@ -1,6 +1,7 @@
-// Input: raycast mouse picking onto the ground plane, click place/select,
-// right-click/Esc cancel, scroll zoom, and hotkeys (Q/W/E/R/T, 1/2/3, Space, D).
-// Port of 2D `We` with 3D picking.
+// Input: raycast picking onto the ground plane, click/tap place/select,
+// right-click cancel, cursor-anchored scroll zoom, two-finger pinch zoom +
+// pan, and hotkeys (Q/W/E/R/T, 1/2/3, Space = start wave, Esc = pause/close,
+// D = debug). Port of 2D `We` with 3D picking + touch support.
 
 import * as THREE from 'three';
 import { COLS, ROWS, TOWER_ORDER } from '../core/defs';
@@ -8,12 +9,19 @@ import type { Game } from '../core/game';
 import type { Renderer } from '../render/renderer';
 
 const GROUND_PLANE = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+/** Tap: max movement (px) and duration (ms) before it stops being a tap. */
+const TAP_MAX_MOVE = 12;
+const TAP_MAX_MS = 600;
 
 export class Input {
   private readonly detach: (() => void)[] = [];
   private readonly raycaster = new THREE.Raycaster();
   private readonly ndc = new THREE.Vector2();
   private readonly hit = new THREE.Vector3();
+  /** Active pointers (mouse and/or touch), for pinch + tap detection. */
+  private readonly pointers = new Map<number, { x: number; y: number }>();
+  private pinchPrev: { dist: number; ndc: THREE.Vector2 } | null = null;
+  private tapInfo: { x: number; y: number; t: number; id: number } | null = null;
 
   constructor(
     private readonly game: Game,
@@ -23,66 +31,127 @@ export class Input {
     this.attach();
   }
 
-  private toWorld(clientX: number, clientY: number): THREE.Vector3 | null {
+  // ------------------------------------------------------------- picking
+
+  private toNdc(clientX: number, clientY: number): THREE.Vector2 | null {
     const rect = this.canvas.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return null;
     this.ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    return this.ndc;
+  }
+
+  private toWorld(clientX: number, clientY: number): THREE.Vector3 | null {
+    if (!this.toNdc(clientX, clientY)) return null;
     this.raycaster.setFromCamera(this.ndc, this.renderer.camera3d.camera);
     return this.raycaster.ray.intersectPlane(GROUND_PLANE, this.hit) ? this.hit : null;
   }
+
+  /** Click/tap action: place the ghost tower or select/deselect. */
+  private handleClick(clientX: number, clientY: number): void {
+    const g = this.game;
+    const p = this.toWorld(clientX, clientY);
+    if (!p || p.x < 0 || p.x >= COLS || p.z < 0 || p.z >= ROWS) return;
+    const c = { c: Math.floor(p.x), r: Math.floor(p.z) };
+    if (!g.grid.inBounds(c.c, c.r)) return;
+    if (g.state !== 'playing' || g.paused) return;
+    if (g.placing) {
+      g.placeAt(c.c, c.r);
+    } else {
+      const occ = g.grid.towerAtCell(c.c, c.r);
+      if (occ) {
+        const tower = g.towers.find((t) => t.id === occ.id) ?? null;
+        g.selectTower(tower);
+      } else {
+        g.selectTower(null);
+      }
+    }
+  }
+
+  private updateHover(clientX: number, clientY: number): void {
+    const g = this.game;
+    const p = this.toWorld(clientX, clientY);
+    if (!p) {
+      g.mouse.inside = false;
+      g.hoverCell = null;
+      return;
+    }
+    g.mouse.x = p.x;
+    g.mouse.z = p.z;
+    g.mouse.inside = p.x >= 0 && p.x < COLS && p.z >= 0 && p.z < ROWS;
+    if (g.mouse.inside) {
+      g.hoverCell = {
+        c: Math.max(0, Math.min(COLS - 1, Math.floor(p.x))),
+        r: Math.max(0, Math.min(ROWS - 1, Math.floor(p.z))),
+      };
+      if (g.placing) {
+        const res = g.canPlace(g.placing, g.hoverCell.c, g.hoverCell.r);
+        g.hoverValid = res.ok;
+        g.hoverReason = res.reason;
+      }
+    } else {
+      g.hoverCell = null;
+    }
+  }
+
+  // ------------------------------------------------------------- events
 
   private attach(): void {
     const canvas = this.canvas;
     const g = this.game;
 
-    const onMove = (e: PointerEvent) => {
-      const p = this.toWorld(e.clientX, e.clientY);
-      if (!p) {
-        g.mouse.inside = false;
-        g.hoverCell = null;
+    const onPointerDown = (e: PointerEvent) => {
+      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (this.pointers.size === 2) {
+        // Two fingers down: pinch/pan mode; cancel any pending tap.
+        this.tapInfo = null;
+        const [a, b] = [...this.pointers.values()];
+        this.pinchPrev = {
+          dist: Math.hypot(a.x - b.x, a.y - b.y),
+          ndc: this.toNdc((a.x + b.x) / 2, (a.y + b.y) / 2)!.clone(),
+        };
+      } else if (this.pointers.size === 1) {
+        this.tapInfo = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId };
+      }
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      if (this.pointers.has(e.pointerId)) {
+        this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      }
+      if (this.pointers.size === 2 && this.pinchPrev) {
+        const [a, b] = [...this.pointers.values()];
+        const dist = Math.hypot(a.x - b.x, a.y - b.y);
+        if (dist > 0 && this.pinchPrev.dist > 0) {
+          // Anchor the PREVIOUS midpoint: keeps the world point under the
+          // fingers glued to them, which zooms by the pinch ratio AND pans
+          // by the midpoint's screen movement.
+          this.renderer.zoomScale(this.pinchPrev.dist / dist, this.pinchPrev.ndc);
+        }
+        this.pinchPrev = {
+          dist: dist,
+          ndc: this.toNdc((a.x + b.x) / 2, (a.y + b.y) / 2)!.clone(),
+        };
         return;
       }
-      g.mouse.x = p.x;
-      g.mouse.z = p.z;
-      g.mouse.inside = p.x >= 0 && p.x < COLS && p.z >= 0 && p.z < ROWS;
-      if (g.mouse.inside) {
-        g.hoverCell = {
-          c: Math.max(0, Math.min(COLS - 1, Math.floor(p.x))),
-          r: Math.max(0, Math.min(ROWS - 1, Math.floor(p.z))),
-        };
-        if (g.placing) {
-          const res = g.canPlace(g.placing, g.hoverCell.c, g.hoverCell.r);
-          g.hoverValid = res.ok;
-          g.hoverReason = res.reason;
+      this.updateHover(e.clientX, e.clientY);
+    };
+
+    const onPointerEnd = (e: PointerEvent) => {
+      this.pointers.delete(e.pointerId);
+      if (this.pointers.size < 2) this.pinchPrev = null;
+      const tap = this.tapInfo;
+      if (tap && tap.id === e.pointerId && this.pointers.size === 0) {
+        const moved = Math.hypot(e.clientX - tap.x, e.clientY - tap.y);
+        if (performance.now() - tap.t < TAP_MAX_MS && moved < TAP_MAX_MOVE) {
+          this.handleClick(e.clientX, e.clientY);
         }
-      } else {
-        g.hoverCell = null;
       }
+      if (this.pointers.size === 0) this.tapInfo = null;
     };
 
     const onLeave = () => {
       g.mouse.inside = false;
       g.hoverCell = null;
-    };
-
-    const onDown = (e: MouseEvent) => {
-      if (e.button !== 0) return;
-      const p = this.toWorld(e.clientX, e.clientY);
-      if (!p || p.x < 0 || p.x >= COLS || p.z < 0 || p.z >= ROWS) return;
-      const c = { c: Math.floor(p.x), r: Math.floor(p.z) };
-      if (!g.grid.inBounds(c.c, c.r)) return;
-      if (g.state !== 'playing' || g.paused) return;
-      if (g.placing) {
-        g.placeAt(c.c, c.r);
-      } else {
-        const occ = g.grid.towerAtCell(c.c, c.r);
-        if (occ) {
-          const tower = g.towers.find((t) => t.id === occ.id) ?? null;
-          g.selectTower(tower);
-        } else {
-          g.selectTower(null);
-        }
-      }
     };
 
     const onContext = (e: MouseEvent) => {
@@ -93,7 +162,8 @@ export class Input {
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      this.renderer.zoom(e.deltaY);
+      const ndc = this.toNdc(e.clientX, e.clientY);
+      if (ndc) this.renderer.zoomBy(e.deltaY, ndc);
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -101,13 +171,14 @@ export class Input {
       if (tag === 'INPUT' || tag === 'SELECT') return;
       switch (e.key) {
         case 'Escape':
+          // (Open modals close themselves first — see UI's capture handler.)
           if (g.placing) g.setPlacing(null);
           else if (g.selectedTower) g.selectTower(null);
-          else if (g.state === 'playing' && g.paused) g.togglePause();
+          else if (g.state === 'playing') g.togglePause();
           break;
         case ' ':
           e.preventDefault();
-          if (g.state === 'playing') g.togglePause();
+          if (g.state === 'playing' && !g.paused) g.startWaveEarly();
           break;
         case '1':
           g.setSpeed(1);
@@ -130,16 +201,20 @@ export class Input {
       }
     };
 
-    canvas.addEventListener('pointermove', onMove);
+    canvas.addEventListener('pointerdown', onPointerDown);
+    canvas.addEventListener('pointermove', onPointerMove);
+    canvas.addEventListener('pointerup', onPointerEnd);
+    canvas.addEventListener('pointercancel', onPointerEnd);
     canvas.addEventListener('mouseleave', onLeave);
-    canvas.addEventListener('mousedown', onDown);
     canvas.addEventListener('contextmenu', onContext);
     canvas.addEventListener('wheel', onWheel, { passive: false });
     window.addEventListener('keydown', onKeyDown);
     this.detach.push(
-      () => canvas.removeEventListener('pointermove', onMove),
+      () => canvas.removeEventListener('pointerdown', onPointerDown),
+      () => canvas.removeEventListener('pointermove', onPointerMove),
+      () => canvas.removeEventListener('pointerup', onPointerEnd),
+      () => canvas.removeEventListener('pointercancel', onPointerEnd),
       () => canvas.removeEventListener('mouseleave', onLeave),
-      () => canvas.removeEventListener('mousedown', onDown),
       () => canvas.removeEventListener('contextmenu', onContext),
       () => canvas.removeEventListener('wheel', onWheel),
       () => window.removeEventListener('keydown', onKeyDown),

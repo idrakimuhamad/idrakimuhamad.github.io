@@ -135,15 +135,18 @@ try {
   await page.screenshot({ path: 'smoke-7-debug.png' });
   await page.keyboard.press('d');
 
-  // --- pause ---
-  await page.keyboard.press(' ');
+  // --- pause: Esc opens the pause menu ---
+  await page.keyboard.press('Escape');
   await page.waitForTimeout(300);
   const paused = await page.evaluate(() => window.__game.paused);
-  check('space pauses', paused);
+  check('esc pauses', paused);
   const pauseMenu = await page.locator('#menu-pause').isVisible();
   check('pause menu visible', pauseMenu);
   await page.screenshot({ path: 'smoke-8-pause.png' });
-  await page.click('#pause-resume');
+  // Esc again closes the pause menu (resume)
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  check('esc resumes', (await page.evaluate(() => window.__game.paused)) === false);
 
   // --- zoom ---
   await page.mouse.move(cx, cy);
@@ -202,7 +205,10 @@ try {
   await page.screenshot({ path: 'smoke-12-restart.png' });
 
   // --- still running after 10s of playtime (plan requirement) ---
-  await page.evaluate(() => window.__game.startWaveEarly());
+  // Space starts the next wave early (fresh game -> countdown active)
+  await page.keyboard.press(' ');
+  await page.waitForTimeout(300);
+  check('space starts wave', (await page.evaluate(() => window.__game.waves.active)) === true);
   await page.waitForTimeout(10000);
   const stateFinal = await page.evaluate(() => window.__game.state);
   const running = stateFinal === 'playing' || stateFinal === 'paused' || stateFinal === 'victory' || stateFinal === 'gameover';
