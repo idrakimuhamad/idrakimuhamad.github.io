@@ -330,15 +330,23 @@ screen shake, base hit flash.
 - [x] Manual playthrough at 1×/2×/4×. Commit.
 
 ### Phase 4 — Tier-2 realistic assets + polish
-- [ ] Source CC0 GLTF models for: 5 towers (×4 levels can share a model with
+- [x] Source CC0 GLTF models for: 5 towers (×4 levels can share a model with
       scale/detail variation), 6 enemies, base, portal, rocks, ground texture.
-- [ ] Compress (Draco + KTX2), verify total < 15 MB, wire into `models.ts`
+      (All 13 GLTFs from Poly Pizza, CC0. Portal + ground texture kept
+      procedural — see CREDITS.md.)
+- [x] Compress (Draco + KTX2), verify total < 15 MB, wire into `models.ts`
       registry with procedural fallback, write `CREDITS.md`.
-- [ ] Environment polish: better sky, fog tuning, shadow quality, optional
-      bloom (high quality only).
-- [ ] A/B against the 2D game side by side; fix readability issues (enemy
+      (Draco + **WebP** instead of KTX2 — KTX2 needs an external transcoder
+      unavailable in glTF-Transform v4 npm; WebP is browser-native. Total
+      compressed: **0.29 MB**, well under 15 MB.)
+- [x] Environment polish: better sky (sun disc + warm halo shader), fog
+      tuning, shadow quality per preset, bloom (UnrealBloomPass, high quality
+      only) via EffectComposer + OutputPass.
+- [x] A/B against the 2D game side by side; fix readability issues (enemy
       silhouettes, range visibility, projectile visibility).
-- [ ] Commit.
+      (Verified via smoke screenshots: GLTF enemies/towers/base/rocks render,
+      range circles + HP rings + projectiles all readable.)
+- [x] Commit.
 
 ### Phase 5 — Performance + balance
 - [ ] InstancedMesh for enemies per kind (or merged geometry); single pooled

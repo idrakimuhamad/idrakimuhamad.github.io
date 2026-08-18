@@ -1,0 +1,61 @@
+# Asset Credits — Tower Defense 3D
+
+All 3D models in this game are **CC0 / Public Domain** and were downloaded
+from [Poly Pizza](https://poly.pizza) (a curated catalogue of CC0 3D models).
+Each model is freely usable with no attribution required; credit is given
+here as a courtesy and for provenance.
+
+## Compression
+
+Every model is compressed before shipping with
+[`gltf-transform`](https://gltf-transform.dev/) using:
+
+- **Draco** (`KHR_draco_mesh_compression`) for geometry, and
+- **WebP** for embedded textures (browser-native, no runtime transcoder).
+
+The runtime decodes Draco via three.js's `DRACOLoader` (WASM decoder shipped
+in `libs/draco/`). The **total compressed asset payload is ~0.29 MB** —
+well under the 15 MB budget set in the plan. (KTX2 was considered but
+requires an external transcoder that isn't available in the glTF-Transform
+v4 npm packages; WebP + Draco is the robust, dependency-light choice.)
+
+The wolf (`enemy_runner`) was additionally **baked to a static mesh** at build
+time: its original skinned rig (51 joints + 24 animation clips) is unused in
+the game — enemies are rotated to face their movement and rendered in bind
+pose — so the rig was flattened away, taking the model from 964 KB to 13 KB.
+
+## Models
+
+| In-game role | Model | Author | License | Source (GLB) |
+|---|---|---|---|---|
+| Cannon tower | Cannon | Quaternius | CC0 | [static.poly.pizza/6d76c733…](https://static.poly.pizza/6d76c733-c77c-46f5-9d4f-af847d4052b3.glb) |
+| Machine-Gun tower | Watch Tower | Quaternius | CC0 | [static.poly.pizza/af1eb6e4…](https://static.poly.pizza/af1eb6e4-a1b9-415f-bb4d-6098c4a70b40.glb) |
+| Sniper tower | Stone Tower | Quaternius | CC0 | [static.poly.pizza/2ebc450e…](https://static.poly.pizza/2ebc450e-0874-4b5a-bbfa-6e30e29fcc85.glb) |
+| Frost tower | Crystal | iPoly3D | CC0 | [static.poly.pizza/75211364…](https://static.poly.pizza/75211364-db9b-4004-8e35-18031f096da1.glb) |
+| Missile tower | Turret Cannon | Quaternius | CC0 | [static.poly.pizza/aaf0aaa7…](https://static.poly.pizza/aaf0aaa7-c244-430a-908b-2ac57567d81c.glb) |
+| Basic enemy | Goblin | Quaternius | CC0 | [static.poly.pizza/54e0fd61…](https://static.poly.pizza/54e0fd61-6898-4b17-b039-8fa656d02954.glb) |
+| Runner enemy | Wolf | Quaternius | CC0 | [static.poly.pizza/f1d12388…](https://static.poly.pizza/f1d12388-e39b-4157-b32a-646a1d089fc4.glb) |
+| Tank enemy | Ogre | joney_lol | CC0 | [static.poly.pizza/1ba94998…](https://static.poly.pizza/1ba94998-1534-441e-a5f7-e51ce167ecc0.glb) |
+| Swarm enemy | Bat | Quaternius | CC0 | [static.poly.pizza/4ae13ae9…](https://static.poly.pizza/4ae13ae9-c257-41ed-86b5-1b4760924ebc.glb) |
+| Armored enemy | Knight | Dawid2K | CC0 | [static.poly.pizza/5aef0a90…](https://static.poly.pizza/5aef0a90-a166-4024-b3bb-ca6ad8c733f3.glb) |
+| Regen enemy | Slime | Quaternius | CC0 | [static.poly.pizza/195565b4…](https://static.poly.pizza/195565b4-842a-44e9-a59a-5ebb1d133255.glb) |
+| Player base | Castle | Quaternius | CC0 | [static.poly.pizza/22b576c3…](https://static.poly.pizza/22b576c3-24c2-45c4-a89c-b088901c3695.glb) |
+| Rock obstacle | Rock | Quaternius | CC0 | [static.poly.pizza/87d3dfd2…](https://static.poly.pizza/87d3dfd2-de47-4b03-b9f1-4c84c2a605b0.glb) |
+
+## Procedural (no external asset)
+
+The following are generated in code (Tier-1 procedural builders), keeping the
+game fully functional even if a GLTF asset fails to load:
+
+- **Spawn portal** — animated torus + swirl shader (`terrain.ts`). A GLTF
+  portal was evaluated but the available CC0 options were poor fits for the
+  fantasy theme, so the procedural version is kept.
+- **Ground / grass & water** — procedural grid + animated water shader.
+- **All projectiles, beams, particles, muzzle flashes, damage text** —
+  procedural VFX.
+
+## License note
+
+CC0 1.0 Universal — the authors have dedicated these works to the public
+domain. You may use, modify, and redistribute them for any purpose, without
+attribution. See [Poly Pizza](https://poly.pizza) for the full catalogue.

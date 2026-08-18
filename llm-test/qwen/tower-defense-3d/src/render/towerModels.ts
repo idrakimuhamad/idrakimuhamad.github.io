@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { TOWERS } from '../core/defs';
 import type { TowerKind } from '../core/types';
+import { cloneModel, type NormalizedModel } from './models';
 
 export const FLASH_COLOR: Record<TowerKind, string> = {
   cannon: '#ffcc66',
@@ -189,6 +190,29 @@ function buildMissile(): TowerProto {
   }
   g.add(turret);
   return { group: g, turret, flash: makeFlash(turret, 0.3, 0.42, 0), pips: makePips(g) };
+}
+
+// Muzzle-flash anchor per kind, in the turret's local space (model is centered,
+// ~0.82 units tall, facing +X). Tuned so the flash sits near the barrel/top.
+const FLASH_POS: Record<TowerKind, [number, number, number]> = {
+  cannon: [0.42, 0.5, 0],
+  mg: [0.4, 0.42, 0],
+  sniper: [0.45, 0.5, 0],
+  frost: [0.0, 0.62, 0],
+  missile: [0.3, 0.5, 0],
+};
+
+/** Build a TowerProto backed by a loaded (Tier-2) GLTF model. */
+export function makeGLTFProto(kind: TowerKind, model: NormalizedModel): TowerProto {
+  const g = new THREE.Group();
+  const turret = new THREE.Group();
+  g.add(turret);
+  // Shared geometry; materials shared too (towers never tint the body).
+  const body = cloneModel(model.object, false);
+  turret.add(body);
+  const [fx, fy, fz] = FLASH_POS[kind];
+  const flash = makeFlash(turret, fx, fy, fz);
+  return { group: g, turret, flash, pips: makePips(g) };
 }
 
 export const TOWER_BUILDERS: Record<TowerKind, () => TowerProto> = {

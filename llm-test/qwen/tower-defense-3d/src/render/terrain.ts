@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { BASE, COLS, ROWS, SPAWN, TERRAIN_CELLS } from '../core/defs';
 import type { Game } from '../core/game';
 import { T_BASE, T_ROCK, T_SPAWN, T_WATER } from '../core/types';
+import { modelManager, cloneModel } from './models';
 
 const CELL = 32; // texture px per cell
 
@@ -148,7 +149,10 @@ export class Terrain {
   private readonly waterMat: THREE.MeshStandardMaterial;
   private readonly portalDisc: THREE.Mesh;
   private readonly portalRing: THREE.Mesh;
-  private readonly baseGroup: THREE.Group;
+  private baseGroup: THREE.Group;
+  private baseIsGLTF = false;
+  private rocks: THREE.Object3D;
+  private rocksIsGLTF = false;
   private readonly baseFlashLight: THREE.PointLight;
   private hpRing: THREE.Mesh | null = null;
   private hpRingFrac = -1;
@@ -222,6 +226,8 @@ export class Terrain {
     rocks.instanceMatrix.needsUpdate = true;
     rocks.castShadow = true;
     rocks.receiveShadow = true;
+    this.rocks = rocks;
+    this.rocksIsGLTF = false;
     this.group.add(rocks);
 
     // spawn portal at (0.5, 8.5): vertical ring facing +x
@@ -256,10 +262,74 @@ export class Terrain {
 
     // base fortress at (23.5, 8.5)
     this.baseGroup = this.buildBase();
+    this.baseIsGLTF = false;
     this.group.add(this.baseGroup);
     this.baseFlashLight = new THREE.PointLight('#ff3344', 0, 5, 1.5);
     this.baseFlashLight.position.set(BASE.c + 0.5, 1.2, BASE.r + 0.5);
     this.group.add(this.baseFlashLight);
+
+    // Tier-2 upgrades: swap in realistic GLTF base + rocks when they load.
+    modelManager.onLoaded('base', () => this.swapBase());
+    modelManager.onLoaded('rock', () => this.swapRocks());
+  }
+
+  /** Replace the procedural base fortress with the loaded GLTF castle. */
+  private swapBase(): void {
+    const model = modelManager.get('base');
+    if (!model || this.baseIsGLTF) return;
+    this.group.remove(this.baseGroup);
+    this.baseGroup.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (mesh.isMesh) {
+        mesh.geometry.dispose();
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const mat of mats) mat.dispose();
+      }
+    });
+    const castle = cloneModel(model.object, false);
+    castle.position.set(BASE.c + 0.5, 0, BASE.r + 0.5);
+    this.baseGroup = castle;
+    this.baseIsGLTF = true;
+    this.group.add(castle);
+    // force HP ring rebuild on the new base group
+    this.hpRing = null;
+    this.hpRingFrac = -1;
+  }
+
+  /** Replace procedural instanced rocks with loaded GLTF boulders. */
+  private swapRocks(): void {
+    const model = modelManager.get('rock');
+    if (!model || this.rocksIsGLTF) return;
+    this.group.remove(this.rocks);
+    if (!this.rocksIsGLTF) {
+      // procedural instanced rocks own their geometry/material
+      const inst = this.rocks as THREE.InstancedMesh;
+      inst.geometry.dispose();
+      (inst.material as THREE.Material).dispose();
+    }
+    const rockCells = TERRAIN_CELLS.filter((c) => c.t === T_ROCK);
+    const rocks = new THREE.Group();
+    let seed = 12345;
+    const rand = () => {
+      // deterministic pseudo-random so rock layout is stable across swaps
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed / 0x7fffffff;
+    };
+    for (const cell of rockCells) {
+      for (let i = 0; i < 2; i++) {
+        const rock = cloneModel(model.object, false);
+        const ox = (rand() - 0.5) * 0.5;
+        const oz = (rand() - 0.5) * 0.5;
+        const s = 0.6 + rand() * 0.7;
+        rock.position.set(cell.c + 0.5 + ox, 0, cell.r + 0.5 + oz);
+        rock.rotation.y = rand() * Math.PI * 2;
+        rock.scale.setScalar(s);
+        rocks.add(rock);
+      }
+    }
+    this.rocks = rocks;
+    this.rocksIsGLTF = true;
+    this.group.add(rocks);
   }
 
   private buildBase(): THREE.Group {
@@ -309,7 +379,9 @@ export class Terrain {
       this.hpRing = null;
     }
     if (frac <= 0) return;
-    const geo = new THREE.RingGeometry(0.72, 0.88, 48, 1, -Math.PI / 2, Math.PI * 2 * Math.min(1, frac));
+    // The GLTF castle is wider than the procedural fortress, so use a bigger ring.
+    const [r0, r1] = this.baseIsGLTF ? [1.0, 1.22] : [0.72, 0.88];
+    const geo = new THREE.RingGeometry(r0, r1, 48, 1, -Math.PI / 2, Math.PI * 2 * Math.min(1, frac));
     const color = new THREE.Color().setHSL(0.33 * frac, 0.85, 0.5);
     const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, side: THREE.DoubleSide });
     const ring = new THREE.Mesh(geo, mat);

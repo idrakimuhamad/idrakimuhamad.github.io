@@ -16,8 +16,12 @@
     "three": "0.161.0"
   },
   "devDependencies": {
+    "@gltf-transform/core": "^4.4.2",
+    "@gltf-transform/extensions": "^4.4.2",
+    "@gltf-transform/functions": "^4.4.2",
     "@playwright/test": "^1.62.1",
     "@types/three": "0.161.2",
+    "draco3d": "^1.5.7",
     "typescript": "5.5.4",
     "vite": "5.4.2",
     "vitest": "^2.1.9"

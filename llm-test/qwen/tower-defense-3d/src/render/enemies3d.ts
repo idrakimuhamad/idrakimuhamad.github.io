@@ -6,12 +6,33 @@ import { ENEMIES } from '../core/defs';
 import type { Enemy } from '../core/enemy';
 import type { Game } from '../core/game';
 import type { EnemyKind, SettingsStore } from '../core/types';
+import { modelManager, cloneModel, type EnemyModelKey } from './models';
+
+const ENEMY_MODEL_KEY: Record<EnemyKind, EnemyModelKey> = {
+  basic: 'enemy_basic',
+  runner: 'enemy_runner',
+  tank: 'enemy_tank',
+  swarm: 'enemy_swarm',
+  armored: 'enemy_armored',
+  regen: 'enemy_regen',
+};
+
+/** A tintable material on a GLTF body (cloned per enemy). */
+interface TintMat {
+  mat: THREE.MeshStandardMaterial;
+  baseColor: THREE.Color;
+  baseEmissive: THREE.Color;
+}
 
 interface EnemyMesh {
   group: THREE.Group;
-  body: THREE.Mesh;
-  bodyMat: THREE.MeshStandardMaterial;
-  baseColor: THREE.Color;
+  body: THREE.Object3D;
+  isGLTF: boolean;
+  // procedural-only tint state
+  bodyMat?: THREE.MeshStandardMaterial;
+  baseColor?: THREE.Color;
+  // GLTF-only tint state
+  gltfMats?: TintMat[];
   bar: THREE.Sprite;
   barCtx: CanvasRenderingContext2D;
   barTex: THREE.CanvasTexture;
@@ -37,6 +58,25 @@ function bodyFor(kind: EnemyKind): { geo: THREE.BufferGeometry; y: number } {
 
 const SLOW_TINT = new THREE.Color('#6fd6ff');
 const tmpColor = new THREE.Color();
+
+/** Collect the (per-enemy cloned) standard materials of a GLTF body for tinting. */
+function collectMats(body: THREE.Object3D): TintMat[] {
+  const out: TintMat[] = [];
+  body.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const mats = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]) as THREE.MeshStandardMaterial[];
+    for (const mat of mats) {
+      if (!mat.color) continue;
+      out.push({
+        mat,
+        baseColor: mat.color.clone(),
+        baseEmissive: mat.emissive ? mat.emissive.clone() : new THREE.Color(0, 0, 0),
+      });
+    }
+  });
+  return out;
+}
 
 function makeBar(): { sprite: THREE.Sprite; ctx: CanvasRenderingContext2D; tex: THREE.CanvasTexture } {
   const canvas = document.createElement('canvas');
@@ -72,34 +112,78 @@ export class Enemies3D {
   private ensure(e: Enemy): EnemyMesh {
     let m = this.meshes.get(e.id);
     if (!m) {
-      const { geo, y } = bodyFor(e.kind);
-      const bodyMat = new THREE.MeshStandardMaterial({
-        color: ENEMIES[e.kind].color,
-        roughness: 0.65,
-        metalness: e.kind === 'armored' ? 0.55 : 0.1,
-        flatShading: e.kind === 'runner' || e.kind === 'swarm',
-      });
-      const body = new THREE.Mesh(geo, bodyMat);
-      body.position.y = y;
-      body.castShadow = true;
-      const group = new THREE.Group();
-      group.add(body);
-      this.group.add(group);
-      const bar = makeBar();
-      m = {
-        group,
-        body,
-        bodyMat,
-        baseColor: new THREE.Color(ENEMIES[e.kind].color),
-        bar: bar.sprite,
-        barCtx: bar.ctx,
-        barTex: bar.tex,
-        lastFrac: -1,
-      };
-      group.add(bar.sprite);
+      m = this.createEnemyMesh(e);
       this.meshes.set(e.id, m);
     }
     return m;
+  }
+
+  private createEnemyMesh(e: Enemy): EnemyMesh {
+    const group = new THREE.Group();
+    const bar = makeBar();
+    group.add(bar.sprite);
+    this.group.add(group);
+    const key = ENEMY_MODEL_KEY[e.kind];
+    const model = modelManager.get(key);
+    const m: EnemyMesh = {
+      group,
+      body: null as unknown as THREE.Object3D,
+      isGLTF: false,
+      bar: bar.sprite,
+      barCtx: bar.ctx,
+      barTex: bar.tex,
+      lastFrac: -1,
+    };
+    if (model) {
+      this.applyGLTFBody(m, e, model.object);
+    } else {
+      this.applyProceduralBody(m, e);
+      modelManager.onLoaded(key, () => {
+        const cur = this.meshes.get(e.id);
+        if (cur && !cur.isGLTF && e.alive) this.applyGLTFBody(cur, e, modelManager.get(key)!.object);
+      });
+    }
+    return m;
+  }
+
+  private applyProceduralBody(m: EnemyMesh, e: Enemy): void {
+    const { geo, y } = bodyFor(e.kind);
+    const bodyMat = new THREE.MeshStandardMaterial({
+      color: ENEMIES[e.kind].color,
+      roughness: 0.65,
+      metalness: e.kind === 'armored' ? 0.55 : 0.1,
+      flatShading: e.kind === 'runner' || e.kind === 'swarm',
+    });
+    const body = new THREE.Mesh(geo, bodyMat);
+    body.position.y = y;
+    body.castShadow = true;
+    m.group.add(body);
+    m.body = body;
+    m.isGLTF = false;
+    m.bodyMat = bodyMat;
+    m.baseColor = new THREE.Color(ENEMIES[e.kind].color);
+    m.gltfMats = undefined;
+  }
+
+  private applyGLTFBody(m: EnemyMesh, e: Enemy, modelObject: THREE.Object3D): void {
+    // Remove previous body (procedural mesh or stale GLTF clone).
+    if (m.body) {
+      m.group.remove(m.body);
+      if (!m.isGLTF) {
+        (m.body as THREE.Mesh).geometry.dispose();
+        (m.bodyMat as THREE.Material)?.dispose();
+      } else if (m.gltfMats) {
+        for (const t of m.gltfMats) t.mat.dispose();
+      }
+    }
+    // Clone with per-enemy materials so tinting is independent.
+    const body = cloneModel(modelObject, true);
+    m.group.add(body);
+    m.body = body;
+    m.isGLTF = true;
+    m.bodyMat = undefined;
+    m.baseColor = undefined;
+    m.gltfMats = collectMats(body);
   }
 
   update(dt: number, game: Game): void {
@@ -124,12 +208,26 @@ export class Enemies3D {
       }
 
       // hit flash + slow tint + regen pulse
-      tmpColor.copy(m.baseColor);
-      if (e.isSlowed) tmpColor.lerp(SLOW_TINT, 0.45 * e.slowFactor);
-      m.bodyMat.color.copy(tmpColor);
+      const slowAmt = e.isSlowed ? 0.45 * e.slowFactor : 0;
       let emissive = e.hitFlash > 0 ? Math.min(1, e.hitFlash / 0.12) * 1.4 : 0;
       if (e.isRegenerating) emissive = Math.max(emissive, 0.35 + Math.sin(this.time * 6) * 0.25);
-      m.bodyMat.emissive.setRGB(emissive, emissive, emissive);
+      if (m.isGLTF && m.gltfMats) {
+        for (const t of m.gltfMats) {
+          if (slowAmt > 0) t.mat.color.copy(t.baseColor).lerp(SLOW_TINT, slowAmt);
+          else t.mat.color.copy(t.baseColor);
+          t.mat.emissive.copy(t.baseEmissive);
+          if (emissive > 0) {
+            t.mat.emissive.r = Math.min(1, t.mat.emissive.r + emissive);
+            t.mat.emissive.g = Math.min(1, t.mat.emissive.g + emissive);
+            t.mat.emissive.b = Math.min(1, t.mat.emissive.b + emissive);
+          }
+        }
+      } else if (m.bodyMat && m.baseColor) {
+        tmpColor.copy(m.baseColor);
+        if (slowAmt > 0) tmpColor.lerp(SLOW_TINT, slowAmt);
+        m.bodyMat.color.copy(tmpColor);
+        m.bodyMat.emissive.setRGB(emissive, emissive, emissive);
+      }
 
       // wobble for organic enemies
       if (e.kind === 'regen' || e.kind === 'swarm') {
@@ -152,8 +250,13 @@ export class Enemies3D {
     for (const [id, m] of this.meshes) {
       if (!alive.has(id)) {
         this.group.remove(m.group);
-        m.body.geometry.dispose();
-        m.bodyMat.dispose();
+        if (m.isGLTF) {
+          // Geometry is shared with the model cache — only dispose cloned mats.
+          if (m.gltfMats) for (const t of m.gltfMats) t.mat.dispose();
+        } else {
+          (m.body as THREE.Mesh).geometry.dispose();
+          m.bodyMat?.dispose();
+        }
         m.barTex.dispose();
         (m.bar.material as THREE.Material).dispose();
         this.meshes.delete(id);

@@ -7,12 +7,22 @@ import { px2w, TOWERS } from '../core/defs';
 import type { Game } from '../core/game';
 import type { Tower } from '../core/tower';
 import type { TowerKind } from '../core/types';
-import { FLASH_COLOR, TOWER_BUILDERS, type TowerProto } from './towerModels';
+import { FLASH_COLOR, TOWER_BUILDERS, makeGLTFProto, type TowerProto } from './towerModels';
+import { modelManager, type TowerModelKey } from './models';
+
+const TOWER_MODEL_KEY: Record<TowerKind, TowerModelKey> = {
+  cannon: 'tower_cannon',
+  mg: 'tower_mg',
+  sniper: 'tower_sniper',
+  frost: 'tower_frost',
+  missile: 'tower_missile',
+};
 
 interface TowerMesh {
   proto: TowerProto;
   ring: THREE.Line | null;
   ringRadius: number;
+  isGLTF: boolean;
 }
 
 function makeRangeRing(radius: number, color: string, dashed: boolean): THREE.Line {
@@ -40,6 +50,7 @@ export class Towers3D {
   private ghostQuad: THREE.Mesh | null = null;
   private ghostKind: TowerKind | null = null;
   private ghostValid: boolean | null = null;
+  private ghostIsGLTF = false;
   private readonly ghostMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.45, depthWrite: false });
   time = 0;
 
@@ -55,13 +66,47 @@ export class Towers3D {
   private ensure(tower: Tower): TowerMesh {
     let m = this.meshes.get(tower.id);
     if (!m) {
-      const proto = TOWER_BUILDERS[tower.kind]();
-      const mesh = proto.group;
-      this.group.add(mesh);
-      m = { proto, ring: null, ringRadius: 0 };
+      m = this.createTowerMesh(tower);
       this.meshes.set(tower.id, m);
     }
     return m;
+  }
+
+  /** Create a tower mesh: GLTF model if ready, else procedural + async swap. */
+  private createTowerMesh(tower: Tower): TowerMesh {
+    const key = TOWER_MODEL_KEY[tower.kind];
+    const model = modelManager.get(key);
+    const proto = model ? makeGLTFProto(tower.kind, model) : TOWER_BUILDERS[tower.kind]();
+    this.group.add(proto.group);
+    const m: TowerMesh = { proto, ring: null, ringRadius: 0, isGLTF: !!model };
+    if (!model) {
+      modelManager.onLoaded(key, () => {
+        const cur = this.meshes.get(tower.id);
+        if (cur && !cur.isGLTF) this.swapToGLTF(tower, cur);
+      });
+    }
+    return m;
+  }
+
+  /** Replace a tower's procedural body with its loaded GLTF model. */
+  private swapToGLTF(tower: Tower, m: TowerMesh): void {
+    const model = modelManager.get(TOWER_MODEL_KEY[tower.kind]);
+    if (!model) return;
+    this.group.remove(m.proto.group);
+    m.proto.group.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (mesh.isMesh) {
+        mesh.geometry.dispose();
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const mat of mats) mat.dispose();
+      }
+    });
+    const proto = makeGLTFProto(tower.kind, model);
+    this.group.add(proto.group);
+    m.proto = proto;
+    m.isGLTF = true;
+    m.ring = null;
+    m.ringRadius = 0;
   }
 
   private syncGhost(kind: TowerKind, valid: boolean): void {
@@ -70,11 +115,17 @@ export class Towers3D {
       this.ghostValid = valid;
       if (this.ghost) {
         this.group.remove(this.ghost);
-        this.ghost.traverse((o) => {
-          if (o instanceof THREE.Mesh) o.geometry.dispose();
-        });
+        // Procedural ghosts own their geometry; GLTF ghosts share it with the
+        // model cache, so only dispose when procedural.
+        if (!this.ghostIsGLTF) {
+          this.ghost.traverse((o) => {
+            if (o instanceof THREE.Mesh) o.geometry.dispose();
+          });
+        }
       }
-      const proto = TOWER_BUILDERS[kind]();
+      const model = modelManager.get(TOWER_MODEL_KEY[kind]);
+      const proto = model ? makeGLTFProto(kind, model) : TOWER_BUILDERS[kind]();
+      this.ghostIsGLTF = !!model;
       proto.group.traverse((o) => {
         if (o instanceof THREE.Mesh) o.material = this.ghostMat;
       });
@@ -138,9 +189,18 @@ export class Towers3D {
     for (const [id, m] of this.meshes) {
       if (!alive.has(id)) {
         this.group.remove(m.proto.group);
-        m.proto.group.traverse((o) => {
-          if (o instanceof THREE.Mesh) o.geometry.dispose();
-        });
+        // Procedural towers own their geometry/materials; GLTF towers share
+        // them with the model cache, so only dispose when procedural.
+        if (!m.isGLTF) {
+          m.proto.group.traverse((o) => {
+            const mesh = o as THREE.Mesh;
+            if (mesh.isMesh) {
+              mesh.geometry.dispose();
+              const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+              for (const mat of mats) mat.dispose();
+            }
+          });
+        }
         this.meshes.delete(id);
       }
     }

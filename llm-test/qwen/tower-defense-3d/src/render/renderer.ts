@@ -2,6 +2,10 @@
 // and the per-frame draw that syncs all 3D modules from game state.
 
 import * as THREE from 'three';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import type { Game } from '../core/game';
 import type { SettingsStore, Quality } from '../core/types';
 import { Camera3D } from './camera3d';
@@ -11,6 +15,7 @@ import { Particles3D } from './particles3d';
 import { Projectiles3D } from './projectiles3d';
 import { Terrain } from './terrain';
 import { Towers3D } from './towers3d';
+import { modelManager } from './models';
 
 const SKY_VERT = /* glsl */ `
 varying vec3 vWorld;
@@ -22,21 +27,27 @@ void main() {
 
 const SKY_FRAG = /* glsl */ `
 precision mediump float;
+uniform vec3 sunDir;
 varying vec3 vWorld;
 void main() {
-  float h = normalize(vWorld).y;
-  vec3 top = vec3(0.22, 0.42, 0.72);
-  vec3 horizon = vec3(0.78, 0.87, 0.96);
-  vec3 ground = vec3(0.33, 0.4, 0.33);
-  vec3 col = h > 0.0 ? mix(horizon, top, pow(h, 0.55)) : mix(horizon, ground, min(1.0, -h * 5.0));
+  vec3 dir = normalize(vWorld);
+  float h = dir.y;
+  vec3 top = vec3(0.15, 0.35, 0.68);
+  vec3 horizon = vec3(0.80, 0.88, 0.97);
+  vec3 ground = vec3(0.30, 0.38, 0.30);
+  vec3 col = h > 0.0 ? mix(horizon, top, pow(h, 0.5)) : mix(horizon, ground, min(1.0, -h * 4.0));
+  // sun disc + warm halo
+  float s = max(0.0, dot(dir, sunDir));
+  col += vec3(1.0, 0.92, 0.72) * pow(s, 260.0) * 1.4;
+  col += vec3(1.0, 0.85, 0.60) * pow(s, 7.0) * 0.22;
   gl_FragColor = vec4(col, 1.0);
 }
 `;
 
-const QUALITY: Record<Quality, { shadows: boolean; shadowSize: number; maxPixelRatio: number }> = {
-  low: { shadows: false, shadowSize: 512, maxPixelRatio: 1 },
-  medium: { shadows: true, shadowSize: 1024, maxPixelRatio: 1.5 },
-  high: { shadows: true, shadowSize: 2048, maxPixelRatio: 2 },
+const QUALITY: Record<Quality, { shadows: boolean; shadowSize: number; maxPixelRatio: number; bloom: boolean }> = {
+  low: { shadows: false, shadowSize: 512, maxPixelRatio: 1, bloom: false },
+  medium: { shadows: true, shadowSize: 1024, maxPixelRatio: 1.5, bloom: false },
+  high: { shadows: true, shadowSize: 2048, maxPixelRatio: 2, bloom: true },
 };
 
 export class Renderer {
@@ -50,6 +61,9 @@ export class Renderer {
   private readonly projectiles: Projectiles3D;
   private readonly particles: Particles3D;
   private readonly debug: Debug3D;
+  private readonly composer: EffectComposer;
+  private readonly bloomPass: UnrealBloomPass;
+  private bloomEnabled = false;
   private quality: Quality;
 
   constructor(
@@ -61,18 +75,30 @@ export class Renderer {
     this.gl.toneMapping = THREE.ACESFilmicToneMapping;
     this.gl.toneMappingExposure = 1.12;
 
+    // Start loading Tier-2 GLTF models now (during the menu) so they're ready
+    // by the time the first wave spawns. Procedural fallbacks cover the gap.
+    modelManager.init();
+
     const aspect = this.aspect();
     this.camera3d = new Camera3D(aspect);
     this.scene.add(this.camera3d.camera);
 
-    // sky dome
+    // sky dome (with sun glow aligned to the directional light)
     const sky = new THREE.Mesh(
       new THREE.SphereGeometry(160, 32, 16),
-      new THREE.ShaderMaterial({ vertexShader: SKY_VERT, fragmentShader: SKY_FRAG, side: THREE.BackSide, depthWrite: false, fog: false }),
+      new THREE.ShaderMaterial({
+        vertexShader: SKY_VERT,
+        fragmentShader: SKY_FRAG,
+        uniforms: { sunDir: { value: new THREE.Vector3(26, 26, -2).normalize() } },
+        side: THREE.BackSide,
+        depthWrite: false,
+        fog: false,
+      }),
     );
     this.scene.add(sky);
 
-    this.scene.fog = new THREE.Fog(0xcfe3f5, 45, 130);
+    // Subtle depth fade; color matches the sky horizon so the far edge blends in.
+    this.scene.fog = new THREE.Fog(0xcde2f5, 42, 115);
 
     // lights
     const hemi = new THREE.HemisphereLight(0xbcd8ff, 0x3a4a33, 0.75);
@@ -104,6 +130,13 @@ export class Renderer {
     this.particles.addTo(this.scene);
     this.debug.addTo(this.scene);
 
+    // post-processing (bloom on high quality). RenderPass -> Bloom -> Output.
+    this.composer = new EffectComposer(this.gl);
+    this.composer.addPass(new RenderPass(this.scene, this.camera3d.camera));
+    this.bloomPass = new UnrealBloomPass(new THREE.Vector2(960, 640), 0.55, 0.5, 0.92);
+    this.composer.addPass(this.bloomPass);
+    this.composer.addPass(new OutputPass());
+
     this.quality = settings.data.quality;
     this.applyQuality(this.quality);
     this.resize();
@@ -123,6 +156,7 @@ export class Renderer {
     const h = holder ? holder.clientHeight : 640;
     if (w === 0 || h === 0) return;
     this.gl.setSize(w, h, false);
+    this.composer.setSize(w, h);
     this.camera3d.setAspect(w / h);
   }
 
@@ -139,6 +173,8 @@ export class Renderer {
     const cfg = QUALITY[q];
     const dpr = Math.min(window.devicePixelRatio || 1, cfg.maxPixelRatio);
     this.gl.setPixelRatio(dpr);
+    this.composer.setPixelRatio(dpr);
+    this.bloomEnabled = cfg.bloom;
     this.particles.setPixelRatio(dpr);
     const shadowsOn = cfg.shadows;
     if (this.gl.shadowMap.enabled !== shadowsOn) {
@@ -171,7 +207,8 @@ export class Renderer {
     this.projectiles.update(dt, game);
     this.particles.update(dt, game);
     this.debug.update(game);
-    this.gl.render(this.scene, this.camera3d.camera);
+    if (this.bloomEnabled) this.composer.render();
+    else this.gl.render(this.scene, this.camera3d.camera);
   }
 
   dispose(): void {
