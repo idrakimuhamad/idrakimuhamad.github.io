@@ -8,8 +8,8 @@
 
 ## 0. Session handoff — where things stand
 
-**Status: Phases 0–3 complete and committed. Next phase: Phase 4**
-(Tier-2 realistic assets + polish).
+**Status: Phases 0–4 complete and committed. Next phase: Phase 5**
+(performance + balance).
 
 Commits (git log in `llm-test/qwen/tower-defense-3d/`):
 - `4bd49d0` Phase 0 — scaffold (Vite+TS+three.js, 2D DOM UI in template.html)
@@ -18,6 +18,9 @@ Commits (git log in `llm-test/qwen/tower-defense-3d/`):
 - `fa4692d` plan checkboxes updated
 - `75ee973` fix: dev server serves template.html at `/` (dev-only Vite plugin;
   root index.html stays reserved for the deployed build, Phase 6)
+- `92c6a66` Phase 4 — 13 CC0 GLTF models (Poly Pizza), Draco+WebP compression
+  (0.29 MB total), models.ts registry w/ procedural fallback, sky/fog/bloom
+  polish, CREDITS.md
 
 Verified green (re-run before committing anything new):
 - `npm run typecheck`, `npm test` (70/70), `npm run build`, `npm run smoke`
@@ -42,9 +45,31 @@ Architecture facts the next session needs:
 - `scripts/smoke.mjs` is the Playwright smoke test (`npm run smoke` builds
   first). Playwright resolves via `@playwright/test`'s transitive `playwright`
   package — run scripts from the project dir so node_modules resolves.
-- Phase 4 replaces the Tier-1 procedural models in towerModels.ts /
-  enemies3d.ts (and possibly terrain props) with CC0 GLTF assets
-  (Draco+KTX2, <15 MB total). Everything else (core, UI, audio, smoke) stays.
+
+Phase 4 facts (for Phase 5/6):
+- `src/render/models.ts` = ModelManager registry. Imports the 13 compressed
+  GLBs from `assets-src/models/` via Vite `?url` (typed in `src/vite-env.d.ts`),
+  loads them with GLTFLoader + DRACOLoader (decoder at `libs/draco/`, shipped
+  from `public/libs/draco/`), then normalizes each (center XZ, ground at
+  y=0, scale to a per-model target in `CONFIG`), and caches normalized
+  prototypes. `cloneModel<T>()` deep-clones for per-entity use. Load failure
+  → `onLoaded` never fires for that key → the entity keeps its Tier-1
+  procedural body (game always works offline / on asset failure).
+- Async swap pattern: towers/enemies/base/rocks START procedural; when
+  `modelManager` signals a key loaded, the owning module swaps the body in
+  place. Disposal is guarded by an `isGLTF` flag because GLTF geometry and
+  materials are SHARED with the cache (only procedural bodies are disposed
+  per-entity). Towers share geometry AND materials; enemies share geometry
+  but CLONE materials (per-enemy tinting for slow/flash/regen).
+- Re-compress assets: `node scripts/compress-assets.mjs` (reads
+  `assets-src/raw/`, writes `assets-src/models/`). glTF-Transform v4 gotchas
+  are handled in the script (per-texture `compressTexture`, draco3d
+  createEncoder/DecoderModule, KHRDracoMeshCompression class registration,
+  anim/skin stripping). The wolf raw is already a baked static mesh.
+- Environment: sky is a custom shader dome (sun disc + warm halo via
+  `sunDir` uniform); fog `0xcde2f5 42→115`; bloom is an EffectComposer
+  (RenderPass → UnrealBloomPass(0.55,0.5,0.92) → OutputPass) enabled only on
+  High quality (`bloomEnabled`); `draw()` uses the composer when enabled.
 - §11 decisions are resolved (see §11): fantasy-medieval assets, bloom behind
   High quality, new settings key.
 
