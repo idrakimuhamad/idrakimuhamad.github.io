@@ -1,11 +1,17 @@
-// Headless smoke test: serves dist/, drives the game with Playwright,
-// captures console errors and screenshots at each stage.
+// Headless smoke test: serves the DEPLOYED site (folder root: index.html +
+// assets/ + libs/, committed for GitHub Pages), drives the game with
+// Playwright, captures console errors and screenshots at each stage.
+// Run `npm run build` and copy dist/* to the folder root first
+// (`npm run smoke` builds, but the copy is a deploy step).
 import { chromium } from 'playwright';
 import { createServer } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { join, extname } from 'node:path';
 
-const DIST = join(import.meta.dirname, '..', 'dist');
+// Prefer the DEPLOYED copy at the folder root (index.html + assets/ + libs/,
+// committed for GitHub Pages); fall back to dist/ before the first deploy.
+const ROOT = join(import.meta.dirname, '..');
+const SERVE = existsSync(join(ROOT, 'index.html')) ? ROOT : join(ROOT, 'dist');
 const MIME = {
   '.html': 'text/html',
   '.js': 'text/javascript',
@@ -13,12 +19,14 @@ const MIME = {
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
+  '.glb': 'model/gltf-binary',
+  '.wasm': 'application/wasm',
 };
 
 const server = createServer((req, res) => {
   let p = req.url?.split('?')[0] ?? '/';
   if (p === '/') p = '/index.html';
-  const file = join(DIST, p);
+  const file = join(SERVE, p);
   if (!existsSync(file)) {
     res.writeHead(404);
     res.end('not found');
@@ -28,7 +36,7 @@ const server = createServer((req, res) => {
   res.end(readFileSync(file));
 });
 await new Promise((r) => server.listen(4199, r));
-console.log('serving dist on 4199');
+console.log(`serving ${SERVE === ROOT ? 'deployed site (folder root)' : 'dist/ (no deployed copy yet)'} on 4199`);
 
 const browser = await chromium.launch({ args: ['--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
