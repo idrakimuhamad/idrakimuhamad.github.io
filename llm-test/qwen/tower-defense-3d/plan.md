@@ -8,8 +8,8 @@
 
 ## 0. Session handoff — where things stand
 
-**Status: Phases 0–5 complete and committed. Next phase: Phase 6**
-(build, deploy, verify).
+**Status: ALL PHASES (0–6) COMPLETE. Game is live at**
+**https://idrakimuhamad.github.io/llm-test/qwen/tower-defense-3d/**
 
 Commits (git log in `llm-test/qwen/tower-defense-3d/`):
 - `4bd49d0` Phase 0 — scaffold (Vite+TS+three.js, 2D DOM UI in template.html)
@@ -21,7 +21,11 @@ Commits (git log in `llm-test/qwen/tower-defense-3d/`):
 - `92c6a66` Phase 4 — 13 CC0 GLTF models (Poly Pizza), Draco+WebP compression
   (0.29 MB total), models.ts registry w/ procedural fallback, sky/fog/bloom
   polish, CREDITS.md
-- (Phase 5 commit — perf + balance, see below)
+- `dd04369` Phase 5 — perf (InstancedMesh enemies, pooled projectiles,
+  shader pre-compile) + deterministic 2D-vs-3D balance A/B (bit-identical
+  stats) + health-bar readability check
+- `235b77b` Phase 6 — deployed built site to folder root + README.md
+- `df364e2` chore — removed stray test artifact, gitignore test screenshots
 
 Verified green (re-run before committing anything new):
 - `npm run typecheck`, `npm test` (70/70), `npm run build`, `npm run smoke`
@@ -441,13 +445,18 @@ screen shake, base hit flash.
 - [x] Commit.
 
 ### Phase 6 — Build, deploy, verify
-- [ ] `npm run build`; copy `dist/*` to folder root (`index.html` + `assets/`);
-      commit the deployed files.
-- [ ] `npm run preview` → verify. Push → verify live at
+- [x] `npm run build`; copy `dist/*` to folder root (`index.html` + `assets/`
+      + `libs/draco/`); commit the deployed files. (Verified byte-identical
+      to dist/ with `diff -r`.)
+- [x] `npm run preview` → verify. Push → verify live at
       `https://idrakimuhamad.github.io/llm-test/qwen/tower-defense-3d/`.
-- [ ] Write `README.md` (quick start, controls, gameplay, structure, tech
+      (Preview: /, bundle, draco decoder all 200. Live: 200 on /, bundle,
+      css, glb, wasm; headless Playwright run against the LIVE URL — game
+      starts, tower places, wave 1 spawns, 0 console/page errors, 3D
+      screenshot confirmed.)
+- [x] Write `README.md` (quick start, controls, gameplay, structure, tech
       notes — model it on `last-bastion/README.md`).
-- [ ] Final commit + push.
+- [x] Final commit + push.
 
 ## 8. Extracted 2D game data (the porting spec)
 
@@ -666,10 +675,18 @@ npm run preview     # manual playthrough (1x/2x/4x, all 5 towers, upgrades, sell
 
 ## 12. Done means
 
-- [ ] All phases checked off; `npm run build` + `npm test` + `npm run smoke`
+- [x] All phases checked off; `npm run build` + `npm test` + `npm run smoke`
       green.
-- [ ] Deployed site committed at folder root and verified live on
+- [x] Deployed site committed at folder root and verified live on
       GitHub Pages.
-- [ ] `README.md` + `CREDITS.md` (if Tier 2 used) written.
-- [ ] Gameplay verified identical to 2D (same map, same A\* behavior, same
+- [x] `README.md` + `CREDITS.md` (if Tier 2 used) written.
+- [x] Gameplay verified identical to 2D (same map, same A\* behavior, same
       numbers) — the only differences are visual.
+      (Proven by `scripts/balance-ab.mjs`: deterministic lockstep A/B against
+      the 2D original, all gameplay stats bit-identical, totalDamageDealt
+      within 0.06% float noise — see Phase 5 notes.)
+
+Maintenance note: after any `src/` change, `npm run build` and re-copy
+`dist/*` over the folder-root `index.html` + `assets/` + `libs/` before
+committing — the root copy IS the deployed site. `npm run smoke` serves the
+root copy when present (falls back to dist/).
