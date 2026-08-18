@@ -11,6 +11,18 @@
 **Status: ALL PHASES (0–6) COMPLETE. Game is live at**
 **https://idrakimuhamad.github.io/llm-test/qwen/tower-defense-3d/**
 
+**Post-launch fix (commit `17815fa`): GLTF tower barrels now aim correctly.**
+`towers3d.ts` rotates the turret by `-tower.angle`, which assumes each model's
+barrel/front points +X at rest. The Poly Pizza **cannon** model's barrel (wide
+muzzle rim) actually points **+Z** at rest, so it aimed 90° off target and the
+muzzle flash appeared on the wrong side. Fixed in `src/render/models.ts`:
+added a per-model `facing` (cannon = `+Math.PI/2`) applied in `normalize()`
+**before** x/z centering (rotating a positioned object would displace its
+center). The other four towers need no offset: mg/sniper are watchtowers whose
+gun/front sits on +X, frost is a symmetric crystal, missile is a rock. Measured
+from raw GLB geometry (`scripts/node-dump.mjs`); verified with a top-down aim
+sweep at 0/90/180/270 (`scripts/verify-aim.mjs`). Re-deployed to folder root.
+
 Commits (git log in `llm-test/qwen/tower-defense-3d/`):
 - `4bd49d0` Phase 0 — scaffold (Vite+TS+three.js, 2D DOM UI in template.html)
 - `6edf28d` Phase 1 — renderer-independent core port + 70 unit tests
@@ -26,6 +38,8 @@ Commits (git log in `llm-test/qwen/tower-defense-3d/`):
   stats) + health-bar readability check
 - `235b77b` Phase 6 — deployed built site to folder root + README.md
 - `df364e2` chore — removed stray test artifact, gitignore test screenshots
+- `84d94c5` plan: mark Phase 6 complete — all phases done, game is live
+- `17815fa` fix(3d): align GLTF tower barrels with aim direction (cannon facing)
 
 Verified green (re-run before committing anything new):
 - `npm run typecheck`, `npm test` (70/70), `npm run build`, `npm run smoke`
