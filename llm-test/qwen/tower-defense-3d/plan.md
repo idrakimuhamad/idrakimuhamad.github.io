@@ -225,20 +225,20 @@ screen shake, base hit flash.
 ## 7. Phases (work top to bottom, check off as you go)
 
 ### Phase 0 — Scaffold
-- [ ] Create folder structure from §4; copy `vite.config.ts`, `tsconfig.json`,
+- [x] Create folder structure from §4; copy `vite.config.ts`, `tsconfig.json`,
       `.gitignore`, `scripts/postbuild.mjs` from `last-bastion` (adjust names).
-- [ ] `package.json` with scripts from §4; `npm install`.
-- [ ] `template.html` with the 2D game's DOM UI (copy the whole `<body>` UI
+- [x] `package.json` with scripts from §4; `npm install`.
+- [x] `template.html` with the 2D game's DOM UI (copy the whole `<body>` UI
       from `llm-test/qwen/tower-defense/index.html` — HUD chips, build bar,
       tower panel, toast, debug panel, main/pause/end menus, settings + help
       modals — it's all reusable as-is; just the canvas element changes).
-- [ ] `npm run dev` boots a blank three.js scene (gray ground plane + camera).
-- [ ] Commit.
+- [x] `npm run dev` boots a blank three.js scene (gray ground plane + camera).
+- [x] Commit.
 
 ### Phase 1 — Port the game core (headless, tested)
-- [ ] Port every `core/` module from §8 data. Keep class/method names close to
+- [x] Port every `core/` module from §8 data. Keep class/method names close to
       the 2D originals (noted in §8) so the port is auditable line-by-line.
-- [ ] **Unit tests (vitest)** — the 2D game had none; these lock the port in:
+- [x] **Unit tests (vitest)** — the 2D game had none; these lock the port in:
   - A\*: path found on empty map; path avoids rocks/water; no path when walled
     (impossible on this map, but test the rejection logic); path re-routes
     around a placed tower.
@@ -253,39 +253,39 @@ screen shake, base hit flash.
     flat armor (min 1 dmg), leak detection.
   - Tower: targeting modes (first/last/closest/strongest/weakest), upgrade
     cost/level caps, splash falloff `damage * (1 - 0.5 * dist/splash)`.
-- [ ] `npm test` green, `npm run typecheck` green. Commit.
+- [x] `npm test` green, `npm run typecheck` green. Commit.
 
 ### Phase 2 — 3D renderer (Tier 1 assets)
-- [ ] `renderer.ts`: scene, camera (§5.2), lights, fog, sky, tone mapping.
-- [ ] `terrain.ts`: ground plane with grass texture (procedural canvas texture
+- [x] `renderer.ts`: scene, camera (§5.2), lights, fog, sky, tone mapping.
+- [x] `terrain.ts`: ground plane with grass texture (procedural canvas texture
       is fine, like 2D's baked terrain), rock cells as 3D boulder clusters,
       water cells as animated water planes, spawn portal + base as 3D
       structures with glow + base HP ring.
-- [ ] `towers3d.ts`: Tier-1 models per kind, rotating turret toward target,
+- [x] `towers3d.ts`: Tier-1 models per kind, rotating turret toward target,
       muzzle flash, level indicator (small pips or size steps), selection
       range ring (dashed circle on ground).
-- [ ] `enemies3d.ts`: Tier-1 model per kind (distinct silhouette per type, as
+- [x] `enemies3d.ts`: Tier-1 model per kind (distinct silhouette per type, as
       in 2D: round/fast/square/triangle/hex/blob), hit flash, slow tint,
       regen heart indicator, billboarded health bars.
-- [ ] `projectiles3d.ts` + `particles3d.ts`: all VFX from §6.
-- [ ] Placement ghost with range ring + validity tint; hover cell highlight.
-- [ ] Camera shake; debug overlays (grid lines, walkable tint, enemy paths,
+- [x] `projectiles3d.ts` + `particles3d.ts`: all VFX from §6.
+- [x] Placement ghost with range ring + validity tint; hover cell highlight.
+- [x] Camera shake; debug overlays (grid lines, walkable tint, enemy paths,
       tower ranges + target lines) ported as 3D lines.
-- [ ] `npm run dev` → full game playable with Tier-1 visuals. Commit.
+- [x] `npm run dev` → full game playable with Tier-1 visuals. Commit.
 
 ### Phase 3 — UI, audio, settings, debug
-- [ ] `ui.ts`: wire the copied DOM UI to the Game callbacks (port of 2D `Be`
+- [x] `ui.ts`: wire the copied DOM UI to the Game callbacks (port of 2D `Be`
       — build bar with tooltips, tower panel with upgrade/sell/targeting,
       toasts, menus, settings modal, help modal, debug panel).
-- [ ] `input.ts`: raycast mouse → cell, keyboard (identical bindings).
-- [ ] `audio.ts`: port the 2D procedural WebAudio synth (same SFX list, same
+- [x] `input.ts`: raycast mouse → cell, keyboard (identical bindings).
+- [x] `audio.ts`: port the 2D procedural WebAudio synth (same SFX list, same
       throttle logic) — it's framework-agnostic, copy it.
-- [ ] Settings (localStorage key: keep `gridlock-defense-settings-v1` or use a
+- [x] Settings (localStorage key: keep `gridlock-defense-settings-v1` or use a
       new `gridlock-defense-3d-settings-v1` — new key is cleaner), quality
       setting (Low/Medium/High).
-- [ ] `npm run smoke`: Playwright test — page loads, no console errors, start
+- [x] `npm run smoke`: Playwright test — page loads, no console errors, start
       game, place a tower, wave starts, game still running after 10 s.
-- [ ] Manual playthrough at 1×/2×/4×. Commit.
+- [x] Manual playthrough at 1×/2×/4×. Commit.
 
 ### Phase 4 — Tier-2 realistic assets + polish
 - [ ] Source CC0 GLTF models for: 5 towers (×4 levels can share a model with
