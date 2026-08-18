@@ -144,12 +144,14 @@ export class Towers3D {
     }
   }
 
+  private readonly alive = new Set<number>();
+
   update(dt: number, game: Game): void {
     this.time += dt;
-    const alive = new Set<number>();
+    this.alive.clear();
 
     for (const tower of game.towers) {
-      alive.add(tower.id);
+      this.alive.add(tower.id);
       const m = this.ensure(tower);
       const g = m.proto.group;
       g.position.set(tower.x, 0, tower.z);
@@ -187,7 +189,7 @@ export class Towers3D {
 
     // remove dead
     for (const [id, m] of this.meshes) {
-      if (!alive.has(id)) {
+      if (!this.alive.has(id)) {
         this.group.remove(m.proto.group);
         // Procedural towers own their geometry/materials; GLTF towers share
         // them with the model cache, so only dispose when procedural.

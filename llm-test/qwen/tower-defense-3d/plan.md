@@ -8,8 +8,8 @@
 
 ## 0. Session handoff — where things stand
 
-**Status: Phases 0–4 complete and committed. Next phase: Phase 5**
-(performance + balance).
+**Status: Phases 0–5 complete and committed. Next phase: Phase 6**
+(build, deploy, verify).
 
 Commits (git log in `llm-test/qwen/tower-defense-3d/`):
 - `4bd49d0` Phase 0 — scaffold (Vite+TS+three.js, 2D DOM UI in template.html)
@@ -21,6 +21,7 @@ Commits (git log in `llm-test/qwen/tower-defense-3d/`):
 - `92c6a66` Phase 4 — 13 CC0 GLTF models (Poly Pizza), Draco+WebP compression
   (0.29 MB total), models.ts registry w/ procedural fallback, sky/fog/bloom
   polish, CREDITS.md
+- (Phase 5 commit — perf + balance, see below)
 
 Verified green (re-run before committing anything new):
 - `npm run typecheck`, `npm test` (70/70), `npm run build`, `npm run smoke`
@@ -45,6 +46,39 @@ Architecture facts the next session needs:
 - `scripts/smoke.mjs` is the Playwright smoke test (`npm run smoke` builds
   first). Playwright resolves via `@playwright/test`'s transitive `playwright`
   package — run scripts from the project dir so node_modules resolves.
+
+Phase 5 facts (for Phase 6):
+- `src/render/enemies3d.ts` uses per-kind InstancedMeshes built from the
+  model cache's GLTF primitives (geometry cloned per kind with matrixWorld
+  baked in; materials SHARED with the cache — never disposed per-enemy).
+  Per-instance color carries the slow/flash/regen tint (white base material
+  × instanceColor = old per-enemy tinting). Health bars are a pooled
+  billboard-sprite set (capacity = total enemy cap + 8), redrawn only when
+  the fill changes >2%. `rebuildKind()` re-creates a kind's instanced meshes
+  when its model loads async (procedural → GLTF swap preserved).
+- `src/render/projectiles3d.ts` pools per kind (shell 24, bullet 48, sniper
+  12, frost 24, missile 12) with pre-allocated mesh + trail line; no
+  alloc/dispose during play.
+- `renderer.ts` `maybePrecompile()`: one-time `gl.compile(scene, camera)`
+  once all models have settled (loaded or failed) — compiles instanced
+  material variants up front, removes first-encounter frame hitches.
+- Scripts added: `scripts/perf.mjs` (GPU/SwiftShader fps benchmark),
+  `scripts/balance-ab.mjs` (2D vs 3D deterministic A/B, ports 4203/4204),
+  `scripts/balance-diag.mjs` + `balance-diag2.mjs` (lockstep divergence
+  finders, port 4204, same-origin iframe), `scripts/hud-check.mjs`
+  (health-bar readability screenshot, port 4205). All serve `dist/` —
+  run `npm run build` first. 2D is served from `../tower-defense/` with the
+  `/llm-test/qwen/tower-defense` prefix stripped.
+- Playwright quirks in this build: string functions passed to
+  `page.evaluate` are NOT auto-invoked (pass real function references), and
+  `page.evaluate` enforces a single argument (wrap multiple values in an
+  object or JSON string).
+- Known float noise (documented, accepted): 2D px vs 3D px/40 world units
+  accumulate different per-step rounding; range/hit boundary checks can
+  flip when an entity is within ~1e-13 px of a boundary (observed: one MG
+  shot phased by one step; totalDamageDealt off ≤0.06% over a full game).
+  All other stats are bit-identical. Do not "fix" by snapping units — the
+  2D original is the reference implementation.
 
 Phase 4 facts (for Phase 5/6):
 - `src/render/models.ts` = ModelManager registry. Imports the 13 compressed
@@ -374,14 +408,37 @@ screen shake, base hit flash.
 - [x] Commit.
 
 ### Phase 5 — Performance + balance
-- [ ] InstancedMesh for enemies per kind (or merged geometry); single pooled
+- [x] InstancedMesh for enemies per kind (or merged geometry); single pooled
       `THREE.Points` for particles (hard cap, as in 2D: 1400 particles,
       120 texts); object pools for projectiles/beams/health bars.
-- [ ] Verify 60 fps at 4× speed with a full wave 20 swarm on medium quality.
-- [ ] Playtest balance: numbers are identical to 2D, so balance should match —
+      (Done: enemies3d.ts = one InstancedMesh per GLTF primitive per kind
+      (~18 draw calls for the whole enemy field), per-instance color for
+      slow/flash/regen tint, pooled billboard health-bar sprites; projectiles3d.ts
+      = fixed pools per projectile kind (mesh + trail line pre-allocated,
+      growPool fallback); particles3d.ts already pooled (1400/120 caps); no
+      geometry/material allocation or disposal during gameplay.)
+- [x] Verify 60 fps at 4× speed with a full wave 20 swarm on medium quality.
+      (Done: `scripts/perf.mjs` — 130-enemy wave-20 burst, 5 towers, 4× speed,
+      12 s sampling, RTX 5090 via headless Chromium `--use-angle=d3d11`:
+      avg 59.8, steady min 58, max 60 fps → PASS. Also shader pre-compilation
+      after model load (renderer.ts `maybePrecompile`) to kill first-frame
+      hitches. SwiftShader reference: avg ~22 fps, expected for software.)
+- [x] Playtest balance: numbers are identical to 2D, so balance should match —
       verify difficulty feels the same; only tweak if the 3D view hides info
       (e.g. health bar readability).
-- [ ] Commit.
+      (Done: `scripts/balance-ab.mjs` runs the 2D original and the 3D port
+      in lockstep (identical manual `step(1/120)` sequences, 2 scenarios:
+      normal 5-tower game-over run + easy 8-tower maxed full-victory run,
+      738 enemies). ALL gameplay stats bit-identical (kills, leaks, money,
+      score, waves, result). Only `totalDamageDealt` differs by ≤0.06% —
+      root-caused via `scripts/balance-diag*.mjs` to float boundary noise:
+      2D simulates in px, 3D in px/40 world units, so an entity within ~1e-13
+      px of a range circle can flip one shot by one step. Not a logic bug;
+      documented in the script header. Health bars verified legible
+      (`scripts/hud-check.mjs` + zoomed screenshot): green→yellow bars above
+      damaged enemies, same as 2D (hidden at full HP). No balance tweaks
+      needed.)
+- [x] Commit.
 
 ### Phase 6 — Build, deploy, verify
 - [ ] `npm run build`; copy `dist/*` to folder root (`index.html` + `assets/`);

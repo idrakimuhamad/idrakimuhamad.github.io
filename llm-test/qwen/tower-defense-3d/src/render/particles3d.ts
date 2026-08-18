@@ -174,6 +174,11 @@ export class Particles3D {
     const enabled = this.settings.data.particleEffects;
     const parts = game.particles.particles;
     const n = Math.min(parts.length, MAX_POINTS);
+    if (!enabled || n === 0) {
+      this.points.visible = false;
+      this.syncTexts(game);
+      return;
+    }
     for (let i = 0; i < n; i++) {
       const p: Particle = parts[i];
       const c = parseColor(p.color);

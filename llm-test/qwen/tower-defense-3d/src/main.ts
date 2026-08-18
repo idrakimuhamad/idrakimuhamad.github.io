@@ -85,3 +85,4 @@ renderer.gl.setAnimationLoop((now: number) => {
 });
 
 (window as unknown as { __game: Game }).__game = game;
+(window as unknown as { __renderer: Renderer }).__renderer = renderer;

@@ -65,6 +65,7 @@ export class Renderer {
   private readonly bloomPass: UnrealBloomPass;
   private bloomEnabled = false;
   private quality: Quality;
+  private precompiled = false;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -198,8 +199,22 @@ export class Renderer {
     }
   }
 
+  /**
+   * One-time shader pre-compile once all models have settled (loaded or
+   * failed). Without this, the first enemy/tower of each kind compiles its
+   * (instanced) shader variant mid-game — a visible hitch.
+   */
+  private maybePrecompile(): void {
+    if (this.precompiled) return;
+    const settled = modelManager.loadedCount() + modelManager.failed.size >= modelManager.totalCount();
+    if (!settled) return;
+    this.precompiled = true;
+    this.gl.compile(this.scene, this.camera3d.camera);
+  }
+
   /** Per-frame: update camera + sync all modules from game state + render. */
   draw(dt: number, game: Game): void {
+    this.maybePrecompile();
     this.camera3d.update(game.shake, this.settings.data.screenShake);
     this.terrain.update(dt, game);
     this.towers.update(dt, game);
