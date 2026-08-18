@@ -6,6 +6,48 @@
 > extracted into §8 — you do NOT need to reverse-engineer anything. If you
 > still need a detail from the 2D code, see §9 for how to re-read it.
 
+## 0. Session handoff — where things stand
+
+**Status: Phases 0–3 complete and committed. Next phase: Phase 4**
+(Tier-2 realistic assets + polish).
+
+Commits (git log in `llm-test/qwen/tower-defense-3d/`):
+- `4bd49d0` Phase 0 — scaffold (Vite+TS+three.js, 2D DOM UI in template.html)
+- `6edf28d` Phase 1 — renderer-independent core port + 70 unit tests
+- `3a5d690` Phase 2+3 — 3D renderer, playable game, UI, audio, settings, smoke
+- `fa4692d` plan checkboxes updated
+- `75ee973` fix: dev server serves template.html at `/` (dev-only Vite plugin;
+  root index.html stays reserved for the deployed build, Phase 6)
+
+Verified green (re-run before committing anything new):
+- `npm run typecheck`, `npm test` (70/70), `npm run build`, `npm run smoke`
+  (23/23 Playwright checks, 0 console errors — full lifecycle: menu → play →
+  place → wave → kills → upgrade → game over → restart → 10 s run).
+- `npm run dev` works: http://localhost:5173/ (root URL).
+
+Architecture facts the next session needs:
+- `src/core/` is 100% renderer-independent (no three.js/DOM imports). Game
+  state is 2D-pixel-faithful to the 2D original; all game data in
+  `src/core/defs.ts` (auditable vs §8). `px2w()` = px/40 converts to world
+  units (1 world unit = 40 px = 1 grid cell). Map 24×16 centered at (12,0,8).
+- `src/render/`: renderer.ts (scene/lights/sky/fog/quality presets
+  low/medium/high), camera3d.ts (fixed 3/4 view, scroll zoom, shake),
+  terrain.ts, towerModels.ts + towers3d.ts, enemies3d.ts, projectiles3d.ts,
+  particles3d.ts (pooled Points + custom shader, floating-text sprite pool),
+  debug3d.ts. Each module has `addTo(scene)` + `update(dt, game)` and keeps a
+  Map keyed by entity id, pruning dead entities.
+- `src/input/input.ts` (raycast picking + hotkeys), `src/ui/ui.ts` (DOM),
+  `src/audio/audio.ts` (port of 2D WebAudio synth), `src/settings.ts`
+  (localStorage key `gridlock-defense-3d-settings-v1`).
+- `scripts/smoke.mjs` is the Playwright smoke test (`npm run smoke` builds
+  first). Playwright resolves via `@playwright/test`'s transitive `playwright`
+  package — run scripts from the project dir so node_modules resolves.
+- Phase 4 replaces the Tier-1 procedural models in towerModels.ts /
+  enemies3d.ts (and possibly terrain props) with CC0 GLTF assets
+  (Draco+KTX2, <15 MB total). Everything else (core, UI, audio, smoke) stays.
+- §11 decisions are resolved (see §11): fantasy-medieval assets, bloom behind
+  High quality, new settings key.
+
 ## 1. What we're building
 
 A **3D browser tower-defense game** — a full 3D re-imagining of "Gridlock
@@ -524,15 +566,13 @@ npm run smoke       # playwright: loads, no console errors, start game, place to
 npm run preview     # manual playthrough (1x/2x/4x, all 5 towers, upgrades, sell)
 ```
 
-## 11. Open decisions (answer before Phase 4; defaults in parentheses)
+## 11. Decisions (resolved — used in Phases 0–3)
 
-1. **Asset style:** fantasy-medieval (default — matches the 2D theme),
-   sci-fi, or modern-military? (Ask the user; proceed with fantasy-medieval
-   if no answer.)
+1. **Asset style:** fantasy-medieval (default — matches the 2D theme).
 2. **Bloom/post-processing:** include behind the High quality setting
    (default: yes, off on Low/Medium).
-3. **Settings key:** new `gridlock-defense-3d-settings-v1` (default: yes —
-   don't share settings with the 2D game).
+3. **Settings key:** new `gridlock-defense-3d-settings-v1` (done — settings
+   do not share with the 2D game).
 
 ## 12. Done means
 
