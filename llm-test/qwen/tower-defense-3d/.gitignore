@@ -10,5 +10,7 @@ dist/
 Thumbs.db
 *.log
 
-# Smoke-test screenshots
+# Test screenshots
 smoke-*.png
+perf-*.png
+hud-check.png
