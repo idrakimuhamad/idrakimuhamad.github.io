@@ -1,0 +1,11 @@
+# Dependencies
+node_modules/
+
+# Build output (deployed copy lives at folder root: index.html + assets/)
+dist/
+.npm-cache/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.log

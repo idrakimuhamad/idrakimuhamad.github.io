@@ -1,0 +1,25 @@
+{
+  "name": "tower-defense-3d",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Gridlock Defense 3D - a 3D browser tower-defense game with dynamic A* pathfinding",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build && node scripts/postbuild.mjs",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "smoke": "playwright test"
+  },
+  "dependencies": {
+    "three": "0.161.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@types/three": "0.161.2",
+    "typescript": "5.5.4",
+    "vite": "5.4.2",
+    "vitest": "^2.1.9"
+  }
+}
