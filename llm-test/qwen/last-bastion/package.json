@@ -1,0 +1,22 @@
+{
+  "name": "last-bastion",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Last Bastion - a 3D action tower-defense browser game",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build && node scripts/postbuild.mjs",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "three": "0.161.0"
+  },
+  "devDependencies": {
+    "@types/three": "0.161.2",
+    "playwright": "^1.62.1",
+    "typescript": "5.5.4",
+    "vite": "5.4.2"
+  }
+}
