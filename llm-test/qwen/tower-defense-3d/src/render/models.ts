@@ -54,7 +54,13 @@ const TOWER_SCALE = 0.82;
 const ENEMY_SCALE = 0.55;
 
 const CONFIG: Record<ModelKey, ModelConfig> = {
-  tower_cannon: { url: towerCannonUrl, scale: TOWER_SCALE },
+  // facing = the model's natural barrel/front direction (atan2(z,x) at rest),
+  // so that after the turret's `rotation.y = -tower.angle` the barrel tracks
+  // the target. Measured from the raw GLB geometry (scripts/node-dump.mjs).
+  // Cannon barrel (wide muzzle rim) points +Z at rest -> +90deg. The other
+  // towers (watchtower mg/sniper, crystal frost, rock missile) have their
+  // front/gun on +X or are symmetric, so they need no facing offset.
+  tower_cannon: { url: towerCannonUrl, scale: TOWER_SCALE, facing: Math.PI / 2 },
   tower_mg: { url: towerMgUrl, scale: TOWER_SCALE },
   tower_sniper: { url: towerSniperUrl, scale: TOWER_SCALE },
   tower_frost: { url: towerFrostUrl, scale: TOWER_SCALE },
@@ -116,13 +122,16 @@ function normalize(scene: THREE.Object3D, cfg: ModelConfig): THREE.Group {
   _box.getSize(_size);
   const maxDim = Math.max(_size.x, _size.y, _size.z) || 1;
   scene.scale.setScalar(cfg.scale / maxDim);
+  // Apply the facing rotation BEFORE centering so the x/z centering accounts
+  // for it (rotating a positioned object would otherwise displace its center).
+  // Rotating around Y leaves the Y extent and maxDim unchanged.
+  if (cfg.facing) scene.rotation.y = cfg.facing;
 
   _box.setFromObject(scene);
   _box.getCenter(_center);
   scene.position.x = -_center.x;
   scene.position.z = -_center.z;
   scene.position.y = -_box.min.y + (cfg.yOffset ?? 0);
-  if (cfg.facing) scene.rotation.y = cfg.facing;
 
   const group = new THREE.Group();
   group.add(scene);

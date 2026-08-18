@@ -14,3 +14,22 @@ Thumbs.db
 smoke-*.png
 perf-*.png
 hud-check.png
+
+# Tower-aiming investigation screenshots (regenerable; see scripts/node-dump.mjs)
+aim-*.png
+aimz-*.png
+bare-*.png
+clip-*.png
+clip34-*.png
+face-*.png
+gun-*.png
+gunonly-*.png
+hr-*.png
+main-*.png
+mont-*.png
+rest-top-*.png
+sweep-*.png
+topz-*.png
+turret-*.png
+verify-*.png
+zoom-*.png
