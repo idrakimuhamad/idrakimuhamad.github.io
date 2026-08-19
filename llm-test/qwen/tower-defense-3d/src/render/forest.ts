@@ -9,9 +9,13 @@
 //   3. Mid ring between the inner and border rings — a third tree line that
 //      turns the margin into a three-deep forest wall with overlapping canopy.
 //   4. Water-edge trees hugging the ponds (orthogonal + diagonal shore).
-//   5. Rock-cell undergrowth (bushes, mushrooms, small stones around the
+//   5. Interior forest: trees + undergrowth INSIDE the playfield, on the
+//      cells that are never buildable (boulder fields, forest-pool water)
+//      and off the enemy path — the playfield reads as a forest floor, not
+//      an empty green grid.
+//   6. Rock-cell undergrowth (bushes, mushrooms, small stones around the
 //      boulder fields).
-//   6. Scattered props on walkable cells (mushrooms, stumps, bushes, stones),
+//   7. Scattered props on walkable cells (mushrooms, stumps, bushes, stones),
 //      offset from cell centers so towers can still be built there.
 //
 // Performance: the whole forest must stay light enough for the fixed-step
@@ -36,22 +40,17 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { COLS, ROWS, SPAWN, BASE, TERRAIN_CELLS } from '../core/defs';
+import { Grid } from '../core/grid';
+import { Pathfinder } from '../core/pathfinder';
 import { T_GRASS, T_ROCK, T_WATER } from '../core/types';
 import { modelManager, type ModelKey } from './models';
 
 // ------------------------------------------------------------------ PRNG
 
-/** mulberry32 — tiny deterministic PRNG for placement jitter. */
-export function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+// Shared seeded PRNG (core/prng) — re-exported so existing imports keep
+// working (terrain.ts, tests).
+export { mulberry32 } from '../core/prng';
+import { mulberry32 } from '../core/prng';
 
 // ------------------------------------------------------------------ types
 
@@ -310,6 +309,85 @@ export function waterEdgePlacements(rand: () => number): TreePlacement[] {
   return out;
 }
 
+/**
+ * Interior forest: trees and dense undergrowth INSIDE the playfield, on the
+ * cells that are never buildable and not on the enemy path:
+ *   * rock cells — small trees growing among the boulders + mossy
+ *     undergrowth (mushrooms, stones, bushes) in the crevices;
+ *   * water cells — small forest-pool trees standing in the pond water.
+ * The initial enemy path (A* SPAWN -> BASE, no towers) and the spawn/base
+ * neighbourhoods stay clear, so enemies always walk through and the
+ * portal/fortress read cleanly. Everything is baked into the same merged
+ * static meshes as the rest of the forest (no per-tree meshes).
+ */
+export function interiorPlacements(rand: () => number): { trees: TreePlacement[]; props: Map<PropKey, Placement[]> } {
+  const trees: TreePlacement[] = [];
+  const props = new Map<PropKey, Placement[]>(PROP_KEYS.map((k) => [k, []]));
+  const grid = new Grid();
+  const path = new Pathfinder(COLS, ROWS).findPath(grid, SPAWN.c, SPAWN.r, BASE.c, BASE.r) ?? [];
+  const onPath = new Set(path.map((p) => p.r * COLS + p.c));
+  const clearOfEnds = (c: number, r: number): boolean =>
+    !(Math.abs(c - SPAWN.c) <= 1 && Math.abs(r - SPAWN.r) <= 1) &&
+    !(Math.abs(c - BASE.c) <= 1 && Math.abs(r - BASE.r) <= 1);
+
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const t = terrainAt(c, r);
+      if (t !== T_ROCK && t !== T_WATER) continue;
+      if (onPath.has(r * COLS + c)) continue;
+      if (!clearOfEnds(c, r)) continue;
+      const x = c + 0.5;
+      const z = r + 0.5;
+      if (t === T_ROCK) {
+        // Trees growing among the boulders — shorter than the border rings
+        // so the playfield stays open, mixed ages for a natural look.
+        const roll = rand();
+        const n = roll < 0.6 ? 1 : roll < 0.85 ? 2 : 0;
+        for (let i = 0; i < n; i++) {
+          const { key, variant } = pickTree(rand);
+          trees.push({
+            x: x + (rand() - 0.5) * 0.55,
+            z: z + (rand() - 0.5) * 0.55,
+            rotY: rand() * Math.PI * 2,
+            scale: 1.1 + rand() * 0.9,
+            key,
+            variant,
+          });
+        }
+        // Mossy undergrowth in the boulder crevices.
+        const pn = 1 + ((rand() * 3) | 0);
+        for (let i = 0; i < pn; i++) {
+          const roll = rand();
+          const key: PropKey =
+            roll < 0.4 ? 'mushroom_1' :
+            roll < 0.7 ? 'mushroom_2' :
+            roll < 0.85 ? 'rock_2' : 'bush_1';
+          props.get(key)!.push({
+            x: x + (rand() - 0.5) * 0.7,
+            z: z + (rand() - 0.5) * 0.7,
+            rotY: rand() * Math.PI * 2,
+            scale: key === 'rock_2' ? 0.4 + rand() * 0.3 : 0.5 + rand() * 0.4,
+          });
+        }
+      } else {
+        // Forest pools: small trees standing in the pond water.
+        if (rand() < 0.5) {
+          const { key, variant } = pickTree(rand);
+          trees.push({
+            x: x + (rand() - 0.5) * 0.4,
+            z: z + (rand() - 0.5) * 0.4,
+            rotY: rand() * Math.PI * 2,
+            scale: 0.8 + rand() * 0.5,
+            key,
+            variant,
+          });
+        }
+      }
+    }
+  }
+  return { trees, props };
+}
+
 /** Bushes + mushrooms around rock fields, plus scattered props. */
 export function propPlacements(rand: () => number): Map<PropKey, Placement[]> {
   const out = new Map<PropKey, Placement[]>(PROP_KEYS.map((k) => [k, []]));
@@ -366,7 +444,7 @@ export function propPlacements(rand: () => number): Map<PropKey, Placement[]> {
     const j = (rand() * (i + 1)) | 0;
     [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
   }
-  for (const cell of candidates.slice(0, 52)) {
+  for (const cell of candidates.slice(0, 84)) {
     const roll = rand();
     const key: PropKey =
       roll < 0.18 ? 'mushroom_1' :
@@ -432,7 +510,14 @@ export class Forest {
       ...midRingPlacements(rand),
       ...waterEdgePlacements(rand),
     ];
+    // Interior forest: trees + undergrowth on the non-buildable interior
+    // cells (boulder fields, forest pools), off the enemy path.
+    const interior = interiorPlacements(rand);
+    this.treePlacements.push(...interior.trees);
     const props = propPlacements(rand);
+    for (const [key, list] of interior.props) {
+      if (list.length > 0) props.get(key)!.push(...list);
+    }
 
     // Immediate procedural forest (also the permanent fallback on load failure).
     this.fallback = buildFallbackForest(this.treePlacements);

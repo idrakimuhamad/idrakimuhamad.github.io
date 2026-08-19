@@ -9,6 +9,7 @@ import { Enemy } from './enemy';
 import { Economy } from './economy';
 import { Fx } from './fx';
 import { Grid } from './grid';
+import { overgrownCellsForWave } from './overgrowth';
 import { Pathfinder } from './pathfinder';
 import { Projectile } from './projectile';
 import { Stats } from './stats';
@@ -102,6 +103,9 @@ export class Game {
     this.shake = 0;
     this.baseFlash = 0;
     this.particles.enabled = this.settings.data.particleEffects;
+    // Wave 0 -> no overgrowth, but call it so renderers resync to the
+    // freshly reset (empty) overgrown set.
+    this.applyOvergrowth();
   }
 
   toMenu(): void {
@@ -139,8 +143,7 @@ export class Game {
     for (const kind of toSpawn) this.spawnEnemy(kind);
 
     if (this.settings.data.autoStartWaves && !this.waves.active && !this.waves.countdownActive && !this.waves.finalWaveReached) {
-      this.waves.startNextWave();
-      this.sfx('wave');
+      if (this.beginWave()) this.sfx('wave');
     }
 
     for (const e of this.enemies) {
@@ -305,6 +308,7 @@ export class Game {
   canPlace(kind: TowerKind, c: number, r: number): PlaceResult {
     if (!this.grid.inBounds(c, r)) return { ok: false, reason: 'Out of bounds' };
     if (this.grid.getTerrain(c, r) !== T_GRASS) return { ok: false, reason: 'Cannot build on this terrain' };
+    if (this.grid.isOvergrown(c, r)) return { ok: false, reason: 'Overgrown — the forest has claimed this cell' };
     if (this.grid.towerAtCell(c, r)) return { ok: false, reason: 'Cell already occupied' };
     const cost = TOWERS[kind].levels[0].cost;
     if (!this.economy.canAfford(cost)) return { ok: false, reason: `Not enough money ($${cost})` };
@@ -438,9 +442,38 @@ export class Game {
       this.stats.addMoneyEarned(bonus);
       this.particles.text(12, 2, `+$${bonus} early bonus`, '#ffcf5c', 15, 'info', 2.0);
     }
-    this.waves.startNextWave();
+    this.beginWave();
     this.sfx('wave');
     this.cb.onHudUpdate(this.hudData());
+  }
+
+  // ------------------------------------------------- buildable-area shrink
+
+  /**
+   * Apply the current wave's overgrown set (buildable-area shrink). The
+   * harder the wave, the more cells the forest has reclaimed: overgrown
+   * cells are walkable (enemies still path through) but no longer
+   * buildable. Monotonic: cells only ever become overgrown, never re-open.
+   * Existing towers are preserved — overgrowth only prevents NEW placement.
+   */
+  applyOvergrowth(): void {
+    let fresh = 0;
+    for (const { c, r } of overgrownCellsForWave(this.waves.currentWave)) {
+      if (!this.grid.isOvergrown(c, r)) {
+        this.grid.setOvergrown(c, r, true);
+        fresh++;
+      }
+    }
+    if (fresh > 0) {
+      this.cb.onToast(`The forest overgrows ${fresh} more cell${fresh > 1 ? 's' : ''}`, 'good');
+    }
+  }
+
+  /** Start the next wave and apply its overgrowth (buildable-area shrink). */
+  private beginWave(): boolean {
+    const started = this.waves.startNextWave();
+    if (started) this.applyOvergrowth();
+    return started;
   }
 
   checkWaveEnd(): void {
@@ -546,11 +579,9 @@ export class Game {
 
   debugSkipWave(): void {
     if (this.waves.countdownActive) {
-      this.waves.startNextWave();
-      this.sfx('wave');
+      if (this.beginWave()) this.sfx('wave');
     } else if (!this.waves.active && !this.waves.finalWaveReached) {
-      this.waves.startNextWave();
-      this.sfx('wave');
+      if (this.beginWave()) this.sfx('wave');
     }
   }
 

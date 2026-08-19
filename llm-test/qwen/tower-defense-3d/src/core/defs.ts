@@ -188,6 +188,28 @@ export const TOTAL_WAVES = WAVES.length;
 /** 2D `oe` — seconds between waves. */
 export const WAVE_COUNTDOWN = 18;
 
+// ------------------------------------------------- buildable-area shrink
+
+/**
+ * Overgrowth mechanic (difficulty scaling): as the wave number rises, the
+ * forest reclaims the buildable area. A deterministic (seeded) subset of
+ * grass cells becomes overgrown — walkable (enemies still path through) but
+ * NOT buildable. Early waves keep the full area; the blocked fraction grows
+ * gradually each wave and caps so the game stays winnable. The enemy path
+ * and the spawn/base area are never overgrown. See overgrowth.ts.
+ */
+export const OVERGROWN_SEED = 0x0b77;
+
+/**
+ * Fraction of eligible grass cells that are overgrown at the start of wave
+ * `n` (1-based). Waves 1-2: 0 (full buildable area). Then +1.5% per wave,
+ * capped at 15% from wave 12 onward (≈45 of ~310 eligible cells).
+ */
+export function overgrownFraction(wave: number): number {
+  if (wave < 3) return 0;
+  return Math.min(0.15, (wave - 2) * 0.015);
+}
+
 // ----------------------------------------------------------------- terrain
 
 export interface TerrainCell { c: number; r: number; t: number }

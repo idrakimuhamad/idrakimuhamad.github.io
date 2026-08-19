@@ -130,6 +130,46 @@ function center(c: number, r: number): { x: number; y: number } {
   return { x: (c + 0.5) * CELL, y: (r + 0.5) * CELL };
 }
 
+/**
+ * Dark mossy patch texture for overgrown cells (wave mechanic): the forest
+ * has claimed the cell — walkable, but no longer buildable. One shared
+ * texture, one dynamic quad mesh (rebuilt only when the overgrown set
+ * changes, i.e. once per wave).
+ */
+function makeOvergrownTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#24321c';
+  ctx.fillRect(0, 0, 64, 64);
+  const orand = mulberry32(0x0b78);
+  for (let i = 0; i < 260; i++) {
+    const x = orand() * 64;
+    const y = orand() * 64;
+    const rad = 1 + orand() * 2.5;
+    ctx.fillStyle = orand() < 0.55
+      ? `rgba(76, 98, 50, ${0.25 + orand() * 0.3})`
+      : `rgba(58, 48, 30, ${0.2 + orand() * 0.25})`;
+    ctx.beginPath();
+    ctx.arc(x, y, rad, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.strokeStyle = 'rgba(98, 124, 60, 0.5)';
+  ctx.lineWidth = 1.2;
+  for (let i = 0; i < 14; i++) {
+    const x = orand() * 64;
+    const y = orand() * 64;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + (orand() - 0.5) * 10, y - 4 - orand() * 6);
+    ctx.stroke();
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 function makeWaterTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 128;
@@ -198,6 +238,9 @@ export class Terrain {
   private readonly baseFlashLight: THREE.PointLight;
   private hpRing: THREE.Mesh | null = null;
   private hpRingFrac = -1;
+  /** Overgrown-cell overlay (wave mechanic): dark mossy patches. */
+  private overgrownMesh: THREE.Mesh;
+  private overgrownVersion = -1;
   private time = 0;
   /** Fantasy-forest decor: border trees, water-edge trees, undergrowth. */
   private readonly forest = new Forest();
@@ -273,6 +316,19 @@ export class Terrain {
     this.rocks = rocks;
     this.rocksIsGLTF = false;
     this.group.add(rocks);
+
+    // overgrown cells (wave mechanic): dark mossy patches on the cells the
+    // forest has reclaimed (walkable, not buildable). Resynced per wave.
+    const overgrownMat = new THREE.MeshStandardMaterial({
+      map: makeOvergrownTexture(),
+      roughness: 1,
+      metalness: 0,
+    });
+    this.overgrownMesh = new THREE.Mesh(new THREE.BufferGeometry(), overgrownMat);
+    this.overgrownMesh.position.y = 0.015;
+    this.overgrownMesh.receiveShadow = true;
+    this.overgrownMesh.visible = false;
+    this.group.add(this.overgrownMesh);
 
     // spawn portal at (0.5, 8.5): vertical ring facing +x
     const portal = new THREE.Group();
@@ -435,8 +491,36 @@ export class Terrain {
     this.hpRing = ring;
   }
 
+  /** Rebuild the overgrown-cell overlay when the grid's set changes. */
+  private syncOvergrown(game: Game): void {
+    const g = game.grid;
+    if (g.overgrownVersion === this.overgrownVersion) return;
+    this.overgrownVersion = g.overgrownVersion;
+    const positions: number[] = [];
+    const uvs: number[] = [];
+    const indices: number[] = [];
+    for (let r = 0; r < g.rows; r++) {
+      for (let c = 0; c < g.cols; c++) {
+        if (!g.isOvergrown(c, r)) continue;
+        const i = positions.length / 3;
+        positions.push(c, 0, r, c + 1, 0, r, c + 1, 0, r + 1, c, 0, r + 1);
+        uvs.push(0, 0, 1, 0, 1, 1, 0, 1);
+        indices.push(i, i + 1, i + 2, i, i + 2, i + 3);
+      }
+    }
+    this.overgrownMesh.geometry.dispose();
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+    this.overgrownMesh.geometry = geo;
+    this.overgrownMesh.visible = positions.length > 0;
+  }
+
   update(dt: number, game: Game): void {
     this.time += dt;
+    this.syncOvergrown(game);
     // water shimmer
     const off = this.waterMat.map!;
     off.offset.x += dt * 0.02;

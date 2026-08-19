@@ -12,6 +12,11 @@ export class Grid {
   readonly rows = ROWS;
   terrain: number[] = [];
   towerAt: (TowerRef | null)[] = [];
+  /** Overgrown cells (wave mechanic): walkable, but NOT buildable. */
+  overgrown: Uint8Array = new Uint8Array(0);
+  overgrownCount = 0;
+  /** Bumped whenever the overgrown set changes (renderers resync on it). */
+  overgrownVersion = 0;
 
   constructor() {
     this.reset();
@@ -33,6 +38,9 @@ export class Grid {
     }
     this.terrain[this.idx(SPAWN.c, SPAWN.r)] = T_SPAWN;
     this.terrain[this.idx(BASE.c, BASE.r)] = T_BASE;
+    this.overgrown = new Uint8Array(this.cols * this.rows);
+    this.overgrownCount = 0;
+    this.overgrownVersion++;
   }
 
   getTerrain(c: number, r: number): number {
@@ -50,7 +58,21 @@ export class Grid {
   isBuildable(c: number, r: number): boolean {
     if (!this.inBounds(c, r)) return false;
     const i = this.idx(c, r);
-    return this.terrain[i] === T_GRASS && this.towerAt[i] === null;
+    return this.terrain[i] === T_GRASS && this.towerAt[i] === null && this.overgrown[i] === 0;
+  }
+
+  isOvergrown(c: number, r: number): boolean {
+    return this.inBounds(c, r) ? this.overgrown[this.idx(c, r)] === 1 : false;
+  }
+
+  setOvergrown(c: number, r: number, v: boolean): void {
+    if (!this.inBounds(c, r)) return;
+    const i = this.idx(c, r);
+    const cur = this.overgrown[i];
+    if (cur === (v ? 1 : 0)) return;
+    this.overgrown[i] = v ? 1 : 0;
+    this.overgrownCount += v ? 1 : -1;
+    this.overgrownVersion++;
   }
 
   placeTower(c: number, r: number, kind: string, id: number): void {

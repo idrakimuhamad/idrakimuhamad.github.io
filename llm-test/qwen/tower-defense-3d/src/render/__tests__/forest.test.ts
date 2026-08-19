@@ -1,10 +1,16 @@
-// Forest layout: determinism (seeded PRNG), playfield clearance, and the
-// density level of the KayKit-style forest (border + inner + mid rings + shore).
+// Forest layout: determinism (seeded PRNG), playfield clearance, the
+// interior forest (trees/undergrowth on non-buildable interior cells), and
+// the density level of the KayKit-style forest (border + inner + mid rings
+// + shore + interior).
 
 import { describe, expect, it } from 'vitest';
 import { BASE, COLS, ROWS, SPAWN } from '../../core/defs';
+import { Grid } from '../../core/grid';
+import { Pathfinder } from '../../core/pathfinder';
+import { T_ROCK, T_WATER } from '../../core/types';
 import {
   borderPlacements,
+  interiorPlacements,
   innerRingPlacements,
   midRingPlacements,
   mulberry32,
@@ -14,27 +20,43 @@ import {
 
 const SEED = 0x5eed; // must match the Forest constructor
 
+/** Consume the ring placement stream, like the Forest constructor. */
+function consumeRings(rand: () => number): void {
+  borderPlacements(rand);
+  innerRingPlacements(rand);
+  midRingPlacements(rand);
+  waterEdgePlacements(rand);
+}
+
 function allTrees() {
   const rand = mulberry32(SEED);
-  return [
+  const rings = [
     ...borderPlacements(rand),
     ...innerRingPlacements(rand),
     ...midRingPlacements(rand),
     ...waterEdgePlacements(rand),
   ];
+  const interior = interiorPlacements(rand);
+  return [...rings, ...interior.trees];
 }
 
 function allProps(): { key: string; x: number; z: number }[] {
   const rand = mulberry32(SEED);
   // consume the tree placement stream first, like the Forest constructor
-  borderPlacements(rand);
-  innerRingPlacements(rand);
-  midRingPlacements(rand);
-  waterEdgePlacements(rand);
+  consumeRings(rand);
+  const interior = interiorPlacements(rand);
   const props = propPlacements(rand);
   const out: { key: string; x: number; z: number }[] = [];
   for (const [key, placements] of props) for (const p of placements) out.push({ key, x: p.x, z: p.z });
+  for (const [key, placements] of interior.props) for (const p of placements) out.push({ key, x: p.x, z: p.z });
   return out;
+}
+
+/** The initial (no-tower) enemy path, as cell keys. */
+function initialPathKeys(): Set<number> {
+  const grid = new Grid();
+  const path = new Pathfinder(COLS, ROWS).findPath(grid, SPAWN.c, SPAWN.r, BASE.c, BASE.r) ?? [];
+  return new Set(path.map((p) => p.r * COLS + p.c));
 }
 
 describe('forest layout', () => {
@@ -83,6 +105,49 @@ describe('forest layout', () => {
     const farEdge = border.filter((t) => t.z < -2.0);
     expect(farEdge.length).toBeGreaterThanOrEqual(24);
     expect(border.length).toBeGreaterThanOrEqual(80);
+  });
+
+  it('places an interior forest on non-buildable cells only (rock + water)', () => {
+    const rand = mulberry32(SEED);
+    consumeRings(rand);
+    const { trees, props } = interiorPlacements(rand);
+    const grid = new Grid();
+    // a real interior forest: trees among the boulders + in the forest pools
+    expect(trees.length).toBeGreaterThanOrEqual(15);
+    expect(trees.length).toBeLessThanOrEqual(60);
+    for (const t of trees) {
+      const c = Math.floor(t.x);
+      const r = Math.floor(t.z);
+      expect(grid.inBounds(c, r), `tree at (${t.x.toFixed(2)}, ${t.z.toFixed(2)}) is off-grid`).toBe(true);
+      const terr = grid.getTerrain(c, r);
+      expect(
+        terr === T_ROCK || terr === T_WATER,
+        `interior tree at (${t.x.toFixed(2)}, ${t.z.toFixed(2)}) sits on buildable terrain ${terr}`,
+      ).toBe(true);
+    }
+    // interior undergrowth props also stay off buildable cells
+    const interiorProps = [...props.values()].flat();
+    expect(interiorProps.length).toBeGreaterThanOrEqual(10);
+    for (const p of interiorProps) {
+      const c = Math.floor(p.x);
+      const r = Math.floor(p.z);
+      const terr = grid.getTerrain(c, r);
+      expect(terr === T_ROCK || terr === T_WATER, `interior prop at (${p.x.toFixed(2)}, ${p.z.toFixed(2)})`).toBe(true);
+    }
+  });
+
+  it('keeps the enemy path and spawn/base clear of interior trees', () => {
+    const rand = mulberry32(SEED);
+    consumeRings(rand);
+    const { trees } = interiorPlacements(rand);
+    const path = initialPathKeys();
+    for (const t of trees) {
+      const c = Math.floor(t.x);
+      const r = Math.floor(t.z);
+      expect(path.has(r * COLS + c), `interior tree on path cell (${c}, ${r})`).toBe(false);
+      expect(Math.abs(c - SPAWN.c) <= 1 && Math.abs(r - SPAWN.r) <= 1).toBe(false);
+      expect(Math.abs(c - BASE.c) <= 1 && Math.abs(r - BASE.r) <= 1).toBe(false);
+    }
   });
 
   it('has three rings at 2.4u / 1.8u / 1.2u margins, each a full loop', () => {

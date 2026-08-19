@@ -1,12 +1,15 @@
 // Input: raycast picking onto the ground plane, click/tap place/select,
-// drag-pan (left-drag past the tap threshold, or middle-mouse drag),
-// right-click cancel, cursor-anchored scroll zoom, two-finger pinch zoom +
-// pan, and hotkeys (Q/W/E/R/T, 1/2/3, Space = start wave, Esc = pause/close,
-// D = debug). Port of 2D `We` with 3D picking + touch support.
+// drag-pan (left-drag past the tap threshold, single-finger touch drag
+// past the tap threshold, or middle-mouse drag), right-click cancel,
+// cursor-anchored scroll zoom, two-finger pinch zoom + pan, and hotkeys
+// (Q/W/E/R/T, 1/2/3, Space = start wave, Esc = pause/close, D = debug).
+// Port of 2D `We` with 3D picking + touch support.
 //
-// Drag-pan vs click: a left press that moves more than TAP_MAX_MOVE (12px)
-// before release becomes a PAN and cancels the click/tap, so quick clicks
-// still place towers / select while drags move the view focus anywhere.
+// Drag-pan vs click: a press (mouse left button or single touch) that moves
+// more than TAP_MAX_MOVE (12px) before release becomes a PAN and cancels
+// the click/tap, so quick clicks/taps still place towers / select while
+// drags move the view focus anywhere. A second touch finger down cancels
+// the single-finger drag-pan and switches to pinch zoom+pan.
 
 import * as THREE from 'three';
 import { COLS, ROWS, TOWER_ORDER } from '../core/defs';
@@ -160,9 +163,13 @@ export class Input {
         dp.y = e.clientY;
       } else if (
         this.tapInfo && this.tapInfo.id === e.pointerId &&
-        e.pointerType === 'mouse' && (e.buttons & 1) && // left button held
-        // (pointermove reports button=-1 while dragging, so use the
-        //  `buttons` bitmask, not `button`)
+        (
+          (e.pointerType === 'mouse' && (e.buttons & 1)) || // left button held
+          // (pointermove reports button=-1 while dragging, so use the
+          //  `buttons` bitmask, not `button`)
+          e.pointerType === 'touch' // single-finger touch drag; a second
+        ) // finger down cancels this via the size===2 pinch branch
+        &&
         Math.hypot(e.clientX - this.tapInfo.x, e.clientY - this.tapInfo.y) > TAP_MAX_MOVE
       ) {
         this.dragPan = { id: e.pointerId, x: e.clientX, y: e.clientY };
