@@ -38,10 +38,13 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done
 
 ## Nice to have
 
-- [ ] **5. Enemy limb animation.** Current GLTF enemies are static meshes that
-      slide; add walk/limb animation. Candidate source: KayKit Character
-      Animations (kaylousberg.itch.io/kaykit-character-animations) — needs
-      retargeting onto the existing enemy bodies or a full model swap.
+- [x] **5. Enemy limb animation.** Enemies with a walk clip (basic Goblin,
+      regen Slime) now play real skeletal walk animation via per-enemy
+      `SkinnedMesh` + `AnimationMixer` instead of sliding. The other kinds
+      (Wolf/Ogre/Bat/Knight) have no walk clip in their CC0 models — or are a
+      50-count swarm that must stay instanced — so they keep the instanced path
+      with a procedural bob. Full set via the KayKit Character Animations
+      drop-in (see CREDITS.md).
 - [ ] **6. Futuristic asset theme.** Replace the medieval Poly Pizza
       towers/enemies with futuristic models that match each weapon type
       (cannon / MG / sniper / frost / missile). CC0 sources TBD (Poly Pizza
@@ -51,11 +54,41 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done
       rocks). Theme conflict with #6 resolved in favor of fantasy forest.
 - [ ] **8. Hexagonal grid** (kaykit-medieval-hexagon style). **NO-GO (dropped,
       2026-08-18):** user decision — stay on the square grid. Not starting.
-- [ ] **9. Adventurer characters** (KayKit Adventurers direction,
+- [x] **9. Adventurer characters** (KayKit Adventurers direction,
       kaylousberg.itch.io/kaykit-adventurers) — animated humanoids for
       enemies (towers keep their weapon turrets). Theme decided: fantasy.
+      Shipped with the CC0 Goblin (basic) + Slime (regen) animated stand-ins;
+      the paid KayKit Adventurers GLBs drop in via the steps in CREDITS.md.
 
 ## Log
+
+- **#5 Enemy limb animation + #9 Adventurer characters — done (2026-08-19).**
+  - KayKit (Adventurers + Character Animations) is paid and its GLBs aren't
+    available here, so the animated characters ship as CC0 Quaternius stand-ins
+    in the same low-poly style (see CREDITS.md for the exact KayKit drop-in).
+  - **Pipeline** (`scripts/compress-assets.mjs`): the basic (Goblin) and regen
+    (Slime) GLBs now keep their skin/rig + a single walk clip instead of being
+    baked to a static mesh; the other enemies are still baked static. The
+    animated meshes are also decimated (meshoptimizer preserves the
+    JOINTS/WEIGHT attributes) to keep per-enemy skinning cheap.
+  - **`models.ts`**: `NormalizedModel` now carries `animations` (the kept
+    clips) alongside the scene.
+  - **`enemies3d.ts`**: two rendering paths per kind. Animated kinds (basic,
+    regen) use a lazily-grown pool of per-enemy `SkinnedMesh`es, each with its
+    own `AnimationMixer` playing the walk clip at a phase-offset, rate-scaled
+    to the enemy's on-screen speed × game speed — so feet track the movement
+    and a group doesn't step in lockstep. Static kinds (runner/tank/armored/
+    swarm + any kind whose model has no walk clip) keep the instanced path, now
+    with a subtle procedural bob so they read as walking. The swap is
+    stateless: bodies rebuild when a model arrives and re-sync from game state
+    every frame.
+  - **Performance.** Only the live animated enemies are skinned (a lazily
+    grown pool, indexed like the instanced path), so the smoke window (wave 1 =
+    8 Goblins) skins ~8 meshes. Measured ~16 FPS at the 4× kill window on the
+    SwiftShader smoke rig (kill lands ~2.3 s before the check); the swarm (Bat)
+    stays instanced so a 50-count wave is still a handful of draw calls.
+    Verified: typecheck + 70 tests + build + full smoke (25/25, `kills
+    happened` green, 0 console errors), stable across runs.
 
 - **#7 Fantasy forest world assets — done (2026-08-19).**
   - KayKit is paid and its GLBs aren't available here, so the environment ships

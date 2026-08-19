@@ -57,6 +57,8 @@ export type ModelKey =
 export interface NormalizedModel {
   /** Normalized scene: scaled to `scale`, centered in x/z, resting on y=0, shadows on. */
   object: THREE.Group;
+  /** Animation clips kept on the model (animated enemies, item #5). */
+  animations?: THREE.AnimationClip[];
 }
 
 interface ModelConfig {
@@ -138,11 +140,11 @@ function getLoader(): GLTFLoader {
   return loader;
 }
 
-function loadGLTF(url: string): Promise<THREE.Group> {
+function loadGLTF(url: string): Promise<{ scene: THREE.Group; animations: THREE.AnimationClip[] }> {
   return new Promise((resolve, reject) => {
     getLoader().load(
       url,
-      (gltf: GLTF) => resolve(gltf.scene),
+      (gltf: GLTF) => resolve({ scene: gltf.scene, animations: gltf.animations }),
       undefined,
       (err) => reject(err instanceof Error ? err : new Error(String(err))),
     );
@@ -261,10 +263,10 @@ export class ModelManager {
 
   private async doLoad(key: ModelKey): Promise<NormalizedModel> {
     try {
-      const scene = await loadGLTF(CONFIG[key].url);
+      const { scene, animations } = await loadGLTF(CONFIG[key].url);
       const cfg = CONFIG[key];
       const object = cfg.raw ? wrapRaw(scene) : normalize(scene, cfg);
-      const model: NormalizedModel = { object };
+      const model: NormalizedModel = { object, animations: animations.length ? animations : undefined };
       this.cache.set(key, model);
       const set = this.listeners.get(key);
       if (set) {

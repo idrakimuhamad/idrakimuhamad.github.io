@@ -41,6 +41,22 @@ const SIMPLIFY = {
   'bush_3.glb': { ratio: 0.2, error: 0.2 },
   'bush_4.glb': { ratio: 0.3, error: 0.15 },
   'mushroom_2.glb': { ratio: 0.3, error: 0.15 },
+  // Animated enemies (item #5) render as per-enemy SkinnedMeshes, so their
+  // geometry is skinned every frame — decimate harder than the static ones.
+  // meshoptimizer preserves the JOINTS/WEIGHT attributes through simplify.
+  'enemy_basic.glb': { ratio: 0.25, error: 0.05 },
+  'enemy_regen.glb': { ratio: 0.5, error: 0.06 },
+  'enemy_swarm.glb': { ratio: 0.5, error: 0.06 },
+};
+
+// Enemy models that keep their skin/rig + a single walk clip so enemies play
+// real limb animation (item #5). All other clips are dropped to keep the
+// payload small. The value is a substring of the glTF animation name to keep.
+// (The swarm/Bat has a fly clip but is a 50-count swarm, so it stays baked
+// static + instanced — a skinned swarm would be ~250 draw calls.)
+const KEEP_ANIM = {
+  'enemy_basic.glb': 'Walk',       // Goblin  -> "...|Walk"
+  'enemy_regen.glb': 'Slime_Walk', // Slime   -> "Armature|Slime_Walk"
 };
 
 let totalIn = 0, totalOut = 0;
@@ -60,17 +76,30 @@ for (const f of readdirSync(rawDir).filter((x) => x.endsWith('.glb'))) {
       }
     }
   }
-  // Strip walk/run animations AND the skin/rig — enemies are rotated to face
-  // their movement direction and render in bind pose, so the rig (the wolf
-  // alone carried 51 joints + ~400 KB of animation clips) is dead weight.
-  // Removing the skin makes GLTFLoader emit a plain Mesh in bind pose.
-  for (const anim of doc.getRoot().listAnimations()) anim.dispose();
-  for (const skin of doc.getRoot().listSkins()) skin.dispose();
+  const keepAnim = KEEP_ANIM[f];
+  if (keepAnim) {
+    // Keep the skin/rig + only the matching walk/fly clip; drop the rest.
+    for (const anim of doc.getRoot().listAnimations()) {
+      if (!anim.getName().includes(keepAnim)) anim.dispose();
+    }
+  } else {
+    // Strip walk/run animations AND the skin/rig — enemies are rotated to face
+    // their movement direction and render in bind pose, so the rig (the wolf
+    // alone carried 51 joints + ~400 KB of animation clips) is dead weight.
+    // Removing the skin makes GLTFLoader emit a plain Mesh in bind pose.
+    for (const anim of doc.getRoot().listAnimations()) anim.dispose();
+    for (const skin of doc.getRoot().listSkins()) skin.dispose();
+  }
   // Recompress all textures to WebP (max 1024px, q82)
   for (const tex of doc.getRoot().listTextures()) {
     await compressTexture(tex, { targetFormat: 'webp', width: 1024, height: 1024, quality: 82 });
   }
-  await doc.transform(flatten(), dedup(), draco(), prune());
+  // Animated models keep their node hierarchy (the skin binds to the bone
+  // tree), so skip flatten(); static models flatten as before.
+  const transforms = keepAnim
+    ? [dedup(), draco(), prune()]
+    : [flatten(), dedup(), draco(), prune()];
+  await doc.transform(...transforms);
   const outBuf = await io.writeBinary(doc);
   writeFileSync(outPath, outBuf);
   const outSize = outBuf.length;
