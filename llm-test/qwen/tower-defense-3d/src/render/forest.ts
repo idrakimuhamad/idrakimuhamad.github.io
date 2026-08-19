@@ -2,11 +2,15 @@
 //
 // Layers, back to front:
 //   1. Border ring of trees around the map (dense/tall at the far edge,
-//      sparse/short at the camera edge so it frames the map without
-//      blocking it).
-//   2. Water-edge trees hugging the pond.
-//   3. Rock-cell undergrowth (bushes + mushrooms around the boulder fields).
-//   4. Scattered props on walkable cells (mushrooms, stumps, bushes).
+//      shorter at the camera edge so it frames the map without blocking it).
+//   2. Inner tree ring in the margin between the grid edge and the border
+//      ring — still outside the walkable cells, so it thickens the forest
+//      backdrop into a band without blocking towers or the path.
+//   3. Water-edge trees hugging the ponds (orthogonal + diagonal shore).
+//   4. Rock-cell undergrowth (bushes, mushrooms, small stones around the
+//      boulder fields).
+//   5. Scattered props on walkable cells (mushrooms, stumps, bushes, stones),
+//      offset from cell centers so towers can still be built there.
 //
 // Performance: the whole forest must stay light enough for the fixed-step
 // sim to keep up at 4x on weak GPUs (SwiftShader in CI). Two tricks:
@@ -14,7 +18,8 @@
 //   * Every tree placement is baked into a small number of merged static
 //     meshes. All bark (pack + pines share the same bark texture) merges
 //     into ONE mesh, pack leaves into a second, pine leaves into a third —
-//     so ~40 trees cost 3 draw calls instead of ~120.
+//     so ~90 trees cost 3 draw calls instead of ~270. Props merge the same
+//     way, one small mesh per prop model.
 //   * The GLBs are decimated in the asset pipeline (scripts/compress-assets.mjs)
 //     to a few hundred tris per tree/prop.
 //
@@ -50,7 +55,7 @@ const TREE_KEYS = ['tree_pack', 'pine_1', 'pine_2', 'pine_3', 'pine_4', 'pine_5'
 type TreeKey = (typeof TREE_KEYS)[number];
 const PINE_KEYS = TREE_KEYS.filter((k) => k !== 'tree_pack') as TreeKey[];
 
-const PROP_KEYS = ['mushroom_1', 'mushroom_2', 'stump', 'bush_1', 'bush_2', 'bush_3', 'bush_4'] as const;
+const PROP_KEYS = ['mushroom_1', 'mushroom_2', 'stump', 'bush_1', 'bush_2', 'bush_3', 'bush_4', 'rock_2'] as const;
 type PropKey = (typeof PROP_KEYS)[number];
 
 interface Placement {
@@ -181,60 +186,98 @@ function extractTreeVariants(raw: THREE.Object3D): THREE.Object3D[] {
 
 // ------------------------------------------------------------------ layout
 
-/** Border ring: dense/tall far edge, sparse/short camera edge. */
-function borderPlacements(rand: () => number): TreePlacement[] {
+// Pack trees are cheaper to decimate (~270 tris vs ~600 for pines), so they
+// make up the majority; pines are the dark-green accent.
+function pickTree(rand: () => number): { key: TreeKey; variant: number } {
+  return rand() < 0.8
+    ? { key: 'tree_pack', variant: (rand() * 5) | 0 }
+    : { key: PINE_KEYS[(rand() * PINE_KEYS.length) | 0], variant: 0 };
+}
+
+/**
+ * One line of trees from (x0,z0) to (x1,z1). `step` is the spacing, sMin/sMax
+ * the base height range, heightBias a per-edge multiplier. Canopy variety:
+ * ~10% of trees grow into very tall specimens and ~20% stay small saplings,
+ * matching the reference's mixed-age forest (giants off for the camera edge
+ * so the near ring never blocks the view).
+ */
+function treeLine(
+  rand: () => number, out: TreePlacement[],
+  x0: number, z0: number, x1: number, z1: number,
+  step: number, sMin: number, sMax: number, heightBias = 1, allowGiants = true,
+): void {
+  const n = Math.max(1, Math.floor(Math.hypot(x1 - x0, z1 - z0) / step));
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    let scale = (sMin + rand() * (sMax - sMin)) * heightBias;
+    const v = rand();
+    if (allowGiants && v < 0.1) scale *= 1.45 + rand() * 0.35;
+    else if (v < 0.3) scale *= 0.5 + rand() * 0.15;
+    out.push({
+      x: x0 + (x1 - x0) * t + (rand() - 0.5) * step * 0.6,
+      z: z0 + (z1 - z0) * t + (rand() - 0.5) * step * 0.6,
+      rotY: rand() * Math.PI * 2,
+      scale,
+      ...pickTree(rand),
+    });
+  }
+}
+
+/** Outer border ring: dense/tall far edge, short camera edge. */
+export function borderPlacements(rand: () => number): TreePlacement[] {
   const out: TreePlacement[] = [];
   const M = 2.4; // margin outside the map
-  // Pack trees are cheaper to decimate (~270 tris vs ~600 for pines), so
-  // they make up the majority; pines are the dark-green accent.
-  const pick = (): { key: TreeKey; variant: number } =>
-    rand() < 0.8
-      ? { key: 'tree_pack', variant: (rand() * 5) | 0 }
-      : { key: PINE_KEYS[(rand() * PINE_KEYS.length) | 0], variant: 0 };
-  const along = (
-    x0: number, z0: number, x1: number, z1: number,
-    step: number, sMin: number, sMax: number, heightBias = 1,
-  ) => {
-    const n = Math.max(1, Math.floor(Math.hypot(x1 - x0, z1 - z0) / step));
-    for (let i = 0; i <= n; i++) {
-      const t = i / n;
-      out.push({
-        x: x0 + (x1 - x0) * t + (rand() - 0.5) * step * 0.6,
-        z: z0 + (z1 - z0) * t + (rand() - 0.5) * step * 0.6,
-        rotY: rand() * Math.PI * 2,
-        scale: (sMin + rand() * (sMax - sMin)) * heightBias,
-        ...pick(),
-      });
-    }
-  };
   // Far edge (top of screen): dense, tall backdrop.
-  along(-M, -M, COLS + M, -M, 2.6, 2.4, 3.2, 1.15);
+  treeLine(rand, out, -M, -M, COLS + M, -M, 1.8, 2.4, 3.4, 1.15);
   // Side edges.
-  along(-M, -M, -M, ROWS + M, 3.4, 2.0, 2.8);
-  along(COLS + M, -M, COLS + M, ROWS + M, 3.4, 2.0, 2.8);
-  // Near edge (camera side): sparse + short so it frames, never blocks.
-  along(-M, ROWS + M, COLS + M, ROWS + M, 4.2, 1.4, 2.0);
+  treeLine(rand, out, -M, -M, -M, ROWS + M, 2.4, 2.0, 2.9);
+  treeLine(rand, out, COLS + M, -M, COLS + M, ROWS + M, 2.4, 2.0, 2.9);
+  // Near edge (camera side): short so it frames, never blocks.
+  treeLine(rand, out, -M, ROWS + M, COLS + M, ROWS + M, 3.4, 1.3, 1.9, 1, false);
   return out;
 }
 
-/** Small trees hugging the pond's shore. */
-function waterEdgePlacements(rand: () => number): TreePlacement[] {
+/**
+ * Second, inner ring: sits in the margin between the grid edge and the outer
+ * border ring (1.2u outside the map, vs 2.4u for the outer ring). The margin
+ * is not walkable, so the extra trees never block towers, the path, or the
+ * spawn/base — they just turn the thin border line into a two-deep forest
+ * band. Shorter than the outer ring so the far backdrop keeps its depth.
+ */
+export function innerRingPlacements(rand: () => number): TreePlacement[] {
+  const out: TreePlacement[] = [];
+  const IN = 1.2;
+  treeLine(rand, out, -IN, -IN, COLS + IN, -IN, 3.0, 1.6, 2.6, 1.05);
+  treeLine(rand, out, -IN, -IN, -IN, ROWS + IN, 3.8, 1.4, 2.4);
+  treeLine(rand, out, COLS + IN, -IN, COLS + IN, ROWS + IN, 3.8, 1.4, 2.4);
+  // Camera side: saplings only, so the near margin never occludes the map.
+  treeLine(rand, out, -IN, ROWS + IN, COLS + IN, ROWS + IN, 4.2, 0.9, 1.5, 1, false);
+  return out;
+}
+
+/** Small trees hugging the ponds' shores (orthogonal + diagonal). */
+export function waterEdgePlacements(rand: () => number): TreePlacement[] {
   const out: TreePlacement[] = [];
   const dirs = [
     [1, 0], [-1, 0], [0, 1], [0, -1],
+    [1, 1], [1, -1], [-1, 1], [-1, -1],
   ] as const;
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       if (terrainAt(c, r) !== T_WATER) continue;
       for (const [dc, dr] of dirs) {
         if (terrainAt(c + dc, r + dr) !== T_GRASS) continue;
-        if (rand() > 0.3) continue;
+        // Shore trees are denser than the old 30%: the ponds read as forest
+        // pools, not bare-edged ponds. Diagonals are a touch rarer.
+        if (rand() > (dc === 0 || dr === 0 ? 0.5 : 0.35)) continue;
         const pine = rand() < 0.5;
+        const v = rand();
         out.push({
           x: c + 0.5 + dc * 0.3 + (rand() - 0.5) * 0.35,
           z: r + 0.5 + dr * 0.3 + (rand() - 0.5) * 0.35,
           rotY: rand() * Math.PI * 2,
-          scale: 1.2 + rand() * 0.8,
+          // Mixed ages: a third are small shore saplings.
+          scale: v < 0.33 ? 0.8 + rand() * 0.3 : 1.1 + rand() * 0.9,
           key: pine ? PINE_KEYS[(rand() * PINE_KEYS.length) | 0] : 'tree_pack',
           variant: pine ? 0 : (rand() * 5) | 0,
         });
@@ -245,7 +288,7 @@ function waterEdgePlacements(rand: () => number): TreePlacement[] {
 }
 
 /** Bushes + mushrooms around rock fields, plus scattered props. */
-function propPlacements(rand: () => number): Map<PropKey, Placement[]> {
+export function propPlacements(rand: () => number): Map<PropKey, Placement[]> {
   const out = new Map<PropKey, Placement[]>(PROP_KEYS.map((k) => [k, []]));
   const used = new Set<number>();
   const isCleanGrass = (c: number, r: number) => {
@@ -268,16 +311,21 @@ function propPlacements(rand: () => number): Map<PropKey, Placement[]> {
     });
   };
 
-  // Undergrowth at the edge of every rock cell (cheap models only).
+  // Undergrowth at the edge of every rock cell (cheap models only). Denser
+  // than the old 12%: bushes, mushrooms and small stones crowd the boulders.
   const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       if (terrainAt(c, r) !== T_ROCK) continue;
       for (const [dc, dr] of dirs) {
-        if (rand() > 0.12) continue;
+        if (rand() > 0.3) continue;
         const roll = rand();
-        const key: PropKey = roll < 0.35 ? 'bush_1' : roll < 0.55 ? 'bush_3' : roll < 0.8 ? 'mushroom_1' : 'mushroom_2';
-        place(c + dc, r + dr, -dc, -dr, key, 0.7 + rand() * 0.5);
+        const key: PropKey =
+          roll < 0.3 ? 'bush_1' :
+          roll < 0.5 ? 'bush_3' :
+          roll < 0.65 ? 'rock_2' :
+          roll < 0.85 ? 'mushroom_1' : 'mushroom_2';
+        place(c + dc, r + dr, -dc, -dr, key, key === 'rock_2' ? 0.5 + rand() * 0.4 : 0.7 + rand() * 0.5);
       }
     }
   }
@@ -295,18 +343,19 @@ function propPlacements(rand: () => number): Map<PropKey, Placement[]> {
     const j = (rand() * (i + 1)) | 0;
     [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
   }
-  for (const cell of candidates.slice(0, 8)) {
+  for (const cell of candidates.slice(0, 32)) {
     const roll = rand();
     const key: PropKey =
-      roll < 0.2 ? 'mushroom_1' :
-      roll < 0.4 ? 'mushroom_2' :
-      roll < 0.55 ? 'stump' :
-      roll < 0.75 ? 'bush_1' :
-      roll < 0.9 ? 'bush_3' :
-      roll < 0.95 ? 'bush_4' : 'bush_2';
+      roll < 0.18 ? 'mushroom_1' :
+      roll < 0.36 ? 'mushroom_2' :
+      roll < 0.48 ? 'stump' :
+      roll < 0.52 ? 'rock_2' :
+      roll < 0.7 ? 'bush_1' :
+      roll < 0.85 ? 'bush_3' :
+      roll < 0.93 ? 'bush_4' : 'bush_2';
     const dc = (rand() - 0.5) * 0.5;
     const dr = (rand() - 0.5) * 0.5;
-    place(cell.c, cell.r, dc, dr, key, key === 'bush_2' ? 0.8 + rand() * 0.3 : 0.7 + rand() * 0.55);
+    place(cell.c, cell.r, dc, dr, key, key === 'bush_2' ? 0.8 + rand() * 0.3 : key === 'rock_2' ? 0.5 + rand() * 0.4 : 0.7 + rand() * 0.55);
   }
   return out;
 }
@@ -354,7 +403,11 @@ export class Forest {
   constructor() {
     this.group.name = 'forest';
     const rand = mulberry32(0x5eed);
-    this.treePlacements = [...borderPlacements(rand), ...waterEdgePlacements(rand)];
+    this.treePlacements = [
+      ...borderPlacements(rand),
+      ...innerRingPlacements(rand),
+      ...waterEdgePlacements(rand),
+    ];
     const props = propPlacements(rand);
 
     // Immediate procedural forest (also the permanent fallback on load failure).
