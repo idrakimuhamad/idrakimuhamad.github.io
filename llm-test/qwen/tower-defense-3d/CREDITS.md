@@ -2,9 +2,10 @@
 
 All 3D models in this game are **CC0 / Public Domain**. Most were downloaded
 from [Poly Pizza](https://poly.pizza) (a curated catalogue of CC0 3D models);
-the three animated quadruped/humanoid enemies come from Quaternius's free
-itch.io packs (see the model table). Each model is freely usable with no
-attribution required; credit is given here as a courtesy and for provenance.
+the animated enemies come from Quaternius's free itch.io packs, and the elite
+Sentinel robot from styloo's free itch.io pack (see the model table). Each
+model is freely usable with no attribution required; credit is given here as
+a courtesy and for provenance.
 
 ## Compression
 
@@ -20,17 +21,18 @@ Every model is compressed before shipping with
   scene light enough to run at 4× speed on weak GPUs.
 
 The runtime decodes Draco via three.js's `DRACOLoader` (WASM decoder shipped
-in `libs/draco/`). The **total compressed asset payload is ~1.3 MB** —
+in `libs/draco/`). The **total compressed asset payload is ~1.45 MB** —
 well under the 15 MB budget set in the plan. (KTX2 was considered but
 requires an external transcoder that isn't available in the glTF-Transform
 v4 npm packages; WebP + Draco is the robust, dependency-light choice.)
 
-**Enemy rigs.** Five of the six enemy kinds keep their skin + a single
+**Enemy rigs.** Six of the seven enemy kinds keep their skin + a single
 walk/gallop clip and play real limb animation (items #5/#9): **basic
-(Goblin)**, **regen (Slime)**, **runner (Horse)**, **tank (Skeleton)** and
-**armored (Knight)**. The swarm (Bat) is the exception — it has a fly clip
-but is a 50-count swarm, so it stays baked static + instanced (a skinned
-swarm would be ~250 draw calls). The Quaternius itch.io packs ship FBX
+(Goblin)**, **regen (Slime)**, **runner (Horse)**, **tank (Skeleton)**,
+**armored (Knight)** and **elite (Sentinel robot)**. The swarm (Bat) is the
+exception — it has a fly clip but is a 50-count swarm, so it stays baked
+static + instanced (a skinned swarm would be ~250 draw calls). The
+Quaternius itch.io packs ship FBX
 (Blender) rather than GLB, so `scripts/fbx-to-glb.mjs` converts them: it
 loads the FBX with three.js's `FBXLoader`, rebuilds the geometry as one
 primitive per material (the raw FBX carries dozens of tiny material groups
@@ -38,6 +40,15 @@ that would explode the draw-call count), keeps only the one clip the game
 plays, and exports a GLB with `GLTFExporter`. The flat-color materials
 (Phong) are exported as PBR standard materials; the models carry no
 textures.
+
+The elite Sentinel comes from a different pipeline: [styloo's robot
+character](https://styloo.itch.io/robot-character) ships a self-contained
+GLTF (base64-embedded textures, 11 clips, 14-bone rig, 8014 tris).
+`scripts/gltf-to-glb.mjs` re-encodes it to GLB with gltf-transform and keeps
+only the `walking` clip, renamed `Robot_Walk` so it can't
+substring-collide with the pack's `walkstart`/`walkingstop` clips (the
+walk has zero root motion — body tilt, head bob, wheel spin — and loops
+perfectly, which is exactly what the in-place skinned path needs).
 
 ## Models
 
@@ -54,6 +65,7 @@ textures.
 | Swarm enemy | Bat | Quaternius | CC0 | [static.poly.pizza/4ae13ae9…](https://static.poly.pizza/4ae13ae9-c257-41ed-86b5-1b4760924ebc.glb) |
 | Armored enemy | Knight *(animated, walk)* | Quaternius | CC0 | [itch.io: Low Poly Animated Knight](https://quaternius.itch.io/lowpoly-animated-knight) |
 | Regen enemy | Slime *(animated)* | Quaternius | CC0 | [static.poly.pizza/195565b4…](https://static.poly.pizza/195565b4-842a-44e9-a59a-5ebb1d133255.glb) |
+| Elite enemy | Sentinel Robot *(animated, walk)* | styloo | CC0 | [itch.io: robot character](https://styloo.itch.io/robot-character) |
 | Player base | Castle | Quaternius | CC0 | [static.poly.pizza/22b576c3…](https://static.poly.pizza/22b576c3-24c2-45c4-a89c-b088901c3695.glb) |
 | Rock obstacle | Rock | Quaternius | CC0 | [static.poly.pizza/87d3dfd2…](https://static.poly.pizza/87d3dfd2-de47-4b03-b9f1-4c84c2a605b0.glb) |
 

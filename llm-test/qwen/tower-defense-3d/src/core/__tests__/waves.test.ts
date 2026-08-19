@@ -45,9 +45,26 @@ describe('wave builder', () => {
     }
   });
 
-  it('wave 20 has 130 enemies', () => {
+  it('wave 20 has 134 enemies (incl. 4 elite Sentinels)', () => {
     const w = new Waves();
-    expect(w.buildWave(20).length).toBe(14 + 20 + 16 + 30 + 50);
+    expect(w.buildWave(20).length).toBe(14 + 20 + 16 + 30 + 50 + 4);
+  });
+
+  it('elite Sentinels appear only in late waves (15+), 2-4 each, spaced apart', () => {
+    for (let n = 1; n <= 20; n++) {
+      const elites = WAVES[n - 1].filter((g) => g.kind === 'elite');
+      if (n < 15) {
+        expect(elites.length, `wave ${n}`).toBe(0);
+      } else {
+        for (const g of elites) {
+          expect(g.count, `wave ${n}`).toBeGreaterThanOrEqual(2);
+          expect(g.count, `wave ${n}`).toBeLessThanOrEqual(4);
+          expect(g.gap, `wave ${n}`).toBeGreaterThanOrEqual(5); // spaced apart
+        }
+      }
+    }
+    // first appearance is wave 15
+    expect(WAVES[14].some((g) => g.kind === 'elite')).toBe(true);
   });
 
   it('HP scaling = waveGrowth^(wave-1)', () => {

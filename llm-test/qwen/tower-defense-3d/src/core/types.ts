@@ -3,7 +3,7 @@
 
 export type Difficulty = 'easy' | 'normal' | 'hard';
 export type TowerKind = 'cannon' | 'mg' | 'sniper' | 'frost' | 'missile';
-export type EnemyKind = 'basic' | 'runner' | 'tank' | 'swarm' | 'armored' | 'regen';
+export type EnemyKind = 'basic' | 'runner' | 'tank' | 'swarm' | 'armored' | 'regen' | 'elite';
 export type TargetMode = 'first' | 'last' | 'closest' | 'strongest' | 'weakest';
 export type ProjectileKind = 'shell' | 'bullet' | 'sniper' | 'frost' | 'missile';
 export type GameState = 'menu' | 'playing' | 'paused' | 'victory' | 'gameover';

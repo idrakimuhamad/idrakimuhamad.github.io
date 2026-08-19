@@ -47,6 +47,10 @@ const SIMPLIFY = {
   'enemy_basic.glb': { ratio: 0.25, error: 0.05 },
   'enemy_regen.glb': { ratio: 0.5, error: 0.06 },
   'enemy_swarm.glb': { ratio: 0.5, error: 0.06 },
+  // The Sentinel (robot) is the heaviest animated model (8014 tris pre-decimate,
+  // vs <=1810 for the other skinned enemies); it only ever has 4 live at once,
+  // so decimate hard to keep per-frame skinning cheap.
+  'enemy_elite.glb': { ratio: 0.3, error: 0.05 },
 };
 
 // Enemy models that keep their skin/rig + a single walk clip so enemies play
@@ -60,6 +64,7 @@ const KEEP_ANIM = {
   'enemy_runner.glb': 'Run',        // Horse   -> "Armature|Run" (gallop)
   'enemy_tank.glb': 'Running',      // Skeleton -> "SkeletonArmature|Skeleton_Running"
   'enemy_armored.glb': 'Walking',   // Knight  -> "HumanArmature|Walking"
+  'enemy_elite.glb': 'Robot_Walk',  // Sentinel -> "Robot_Walk" (styloo robot walk)
 };
 
 let totalIn = 0, totalOut = 0;

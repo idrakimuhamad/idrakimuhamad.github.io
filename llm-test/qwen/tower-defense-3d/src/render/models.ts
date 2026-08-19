@@ -24,6 +24,7 @@ import enemyTankUrl from '../../assets-src/models/enemy_tank.glb?url';
 import enemySwarmUrl from '../../assets-src/models/enemy_swarm.glb?url';
 import enemyArmoredUrl from '../../assets-src/models/enemy_armored.glb?url';
 import enemyRegenUrl from '../../assets-src/models/enemy_regen.glb?url';
+import enemyEliteUrl from '../../assets-src/models/enemy_elite.glb?url';
 import baseUrl from '../../assets-src/models/base.glb?url';
 import rockUrl from '../../assets-src/models/rock.glb?url';
 import treePackUrl from '../../assets-src/models/tree_pack.glb?url';
@@ -44,7 +45,8 @@ import bush4Url from '../../assets-src/models/bush_4.glb?url';
 export type TowerModelKey =
   | 'tower_cannon' | 'tower_mg' | 'tower_sniper' | 'tower_frost' | 'tower_missile';
 export type EnemyModelKey =
-  | 'enemy_basic' | 'enemy_runner' | 'enemy_tank' | 'enemy_swarm' | 'enemy_armored' | 'enemy_regen';
+  | 'enemy_basic' | 'enemy_runner' | 'enemy_tank' | 'enemy_swarm' | 'enemy_armored' | 'enemy_regen'
+  | 'enemy_elite';
 export type ModelKey =
   | TowerModelKey
   | EnemyModelKey
@@ -103,6 +105,11 @@ const CONFIG: Record<ModelKey, ModelConfig> = {
   enemy_swarm: { url: enemySwarmUrl, scale: ENEMY_SCALE, yOffset: 0.12 },
   enemy_armored: { url: enemyArmoredUrl, scale: ENEMY_SCALE, facing: Math.PI / 2 },
   enemy_regen: { url: enemyRegenUrl, scale: ENEMY_SCALE },
+  // Elite Sentinel (styloo robot): faces -Z at rest (face/eyes/front wheel on
+  // the -Z side, measured from the rendered GLB), so it needs -90deg to align
+  // with +X. Scaled a bit larger than the other enemies: it's the boss.
+  // (max dim is the outstretched-arm span, not the height.)
+  enemy_elite: { url: enemyEliteUrl, scale: 0.85, facing: -Math.PI / 2 },
   base: { url: baseUrl, scale: 1.55 },
   rock: { url: rockUrl, scale: 0.6 },
   // --- fantasy forest (item #7) -----------------------------------------

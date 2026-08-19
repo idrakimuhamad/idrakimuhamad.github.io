@@ -36,9 +36,10 @@ const ENEMY_MODEL_KEY: Record<EnemyKind, EnemyModelKey> = {
   swarm: 'enemy_swarm',
   armored: 'enemy_armored',
   regen: 'enemy_regen',
+  elite: 'enemy_elite',
 };
 
-const KINDS: EnemyKind[] = ['basic', 'runner', 'tank', 'swarm', 'armored', 'regen'];
+const KINDS: EnemyKind[] = ['basic', 'runner', 'tank', 'swarm', 'armored', 'regen', 'elite'];
 
 /**
  * Animated kinds: kind -> substring of the walk clip name to play (item #5).
@@ -52,6 +53,7 @@ const ANIMATED_CLIP: Partial<Record<EnemyKind, string>> = {
   runner: 'Run',       // Horse    -> "Armature|Run" (gallop)
   tank: 'Running',     // Skeleton -> "SkeletonArmature|Skeleton_Running"
   armored: 'Walking',  // Knight   -> "HumanArmature|Walking"
+  elite: 'Robot_Walk', // Sentinel -> "Robot_Walk" (styloo robot walk cycle)
 };
 // Walk-cycle baseline: the basic enemy's world speed. Faster kinds animate
 // proportionally faster so feet track the on-screen movement.
@@ -128,6 +130,7 @@ function proceduralPrim(kind: EnemyKind): Prim {
     case 'swarm': geo = new THREE.ConeGeometry(0.2, 0.42, 3); y = 0.24; break;
     case 'armored': geo = new THREE.CylinderGeometry(0.27, 0.27, 0.3, 6); y = 0.2; break;
     case 'regen': geo = new THREE.SphereGeometry(0.26, 12, 10); y = 0.26; break;
+    case 'elite': geo = new THREE.BoxGeometry(0.42, 0.5, 0.3); y = 0.3; break;
   }
   geo.translate(0, y, 0);
   const mat = new THREE.MeshStandardMaterial({
@@ -135,7 +138,7 @@ function proceduralPrim(kind: EnemyKind): Prim {
     // stays white and instanceColor reproduces the old per-enemy tinting.
     color: 0xffffff,
     roughness: 0.65,
-    metalness: kind === 'armored' ? 0.55 : 0.1,
+    metalness: kind === 'armored' || kind === 'elite' ? 0.55 : 0.1,
     flatShading: kind === 'runner' || kind === 'swarm',
   });
   return { geo, mat, ownsGeo: true };

@@ -5,6 +5,22 @@ import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
+// Node polyfills for GLTFLoader's image path (embedded PNG textures):
+// it references `self.URL` for blob URLs and `new Image()` for decoding.
+// Texture pixels are irrelevant to the skin/clip/bbox checks below.
+if (typeof globalThis.self === 'undefined') globalThis.self = globalThis;
+if (typeof globalThis.Image === 'undefined') {
+  globalThis.Image = class {
+    set src(v) {
+      setTimeout(() => {
+        this.width = 1024;
+        this.height = 1024;
+        this.onload?.();
+      }, 0);
+    }
+  };
+}
+
 const f = process.argv[2];
 const buf = readFileSync(f);
 const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);

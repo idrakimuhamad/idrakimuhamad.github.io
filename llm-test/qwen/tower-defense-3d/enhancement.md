@@ -38,13 +38,14 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done
 
 ## Nice to have
 
-- [x] **5. Enemy limb animation.** Five of six enemy kinds (basic Goblin,
-      regen Slime, runner Horse, tank Skeleton, armored Knight) now play real
-      skeletal walk/gallop animation via per-enemy `SkinnedMesh` +
-      `AnimationMixer` instead of sliding. Only the swarm (Bat) keeps the
-      instanced path with a procedural bob — it's a 50-count swarm and a
-      skinned version would be ~250 draw calls. The KayKit Character Animations
-      drop-in (see CREDITS.md) remains available for higher-fidelity clips.
+- [x] **5. Enemy limb animation.** Six of seven enemy kinds (basic Goblin,
+      regen Slime, runner Horse, tank Skeleton, armored Knight, elite
+      Sentinel robot) now play real skeletal walk/gallop animation via
+      per-enemy `SkinnedMesh` + `AnimationMixer` instead of sliding. Only the
+      swarm (Bat) keeps the instanced path with a procedural bob — it's a
+      50-count swarm and a skinned version would be ~250 draw calls. The
+      KayKit Character Animations drop-in (see CREDITS.md) remains available
+      for higher-fidelity clips.
 - [ ] **6. Futuristic asset theme.** Replace the medieval Poly Pizza
       towers/enemies with futuristic models that match each weapon type
       (cannon / MG / sniper / frost / missile). CC0 sources TBD (Poly Pizza
@@ -61,6 +62,45 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done
       the paid KayKit Adventurers GLBs drop in via the steps in CREDITS.md.
 
 ## Log
+
+- **New enemy kind: elite “Sentinel” robot boss (2026-08-19).**
+  A 7th enemy kind for the late game — a mysterious mechanical Sentinel that
+  rolls through the deep forest. The toughest enemy in the game:
+  - **Stats** (`defs.ts`): baseHp **720** (vs tank 420), speed **30** (0.75
+    u/s — slower than every other kind; deliberate, not fast), armor **8
+    flat** (more than the Knight's 6), reward **60**, score 80, radius 16,
+    damageToBase **4** (heaviest base damage). Color `#53d6e0`, hex shape.
+  - **Waves** (`defs.ts`): rare and late — wave **15** (2, gap 8, delay 14),
+    17 (3, gap 7), 19 (3, gap 7), 20 (4, gap 6, delay 18). Always spaced far
+    apart so towers can focus fire; the final wave fields the largest group.
+  - **Asset** (`assets-src/raw/enemy_elite.glb` → `assets-src/models/`):
+    [styloo's robot character](https://styloo.itch.io/robot-character) (CC0,
+    itch.io) — a self-contained GLTF with base64-embedded textures, 11 clips,
+    a 14-bone rig and 8014 tris. New `scripts/gltf-to-glb.mjs` (gltf-transform
+    NodeIO + `KHRMaterialsEmissiveStrength`) re-encodes it to GLB keeping only
+    the `walking` clip, renamed **`Robot_Walk`** so it can't
+    substring-collide with the pack's `walkstart`/`walkingstop`. The walk has
+    zero root motion (body tilt, head bob, wheel spin) and loops perfectly.
+  - **Facing** (`models.ts`): the robot faces **-Z** at rest (face/eyes/front
+    wheel on the -Z side, measured by rendering the GLB from four camera
+    directions), so it gets `facing: -π/2` — the opposite sign of the +Z-
+    facing Quaternius models. Scale 0.85 (boss-sized; max dim is the
+    outstretched-arm span, not height).
+  - **Pipeline** (`scripts/compress-assets.mjs`): `KEEP_ANIM` keeps the skin +
+    `Robot_Walk`; `SIMPLIFY` decimates 8014 → 2327 tris (ratio 0.3, error
+    0.05 — it's the heaviest animated model and at most 4 are ever live).
+    817 KB → 118 KB. Total payload 1.34 → 1.45 MB.
+  - **`enemies3d.ts`**: `ENEMY_MODEL_KEY`, `KINDS`, `ANIMATED_CLIP`
+    (`elite: 'Robot_Walk'`), a box procedural fallback, and metalness 0.55
+    (it's plated, like the Knight).
+  - **Tests** (`waves.test.ts`): wave-20 total 130 → 134; new test asserts
+    elites appear only in waves 15+, 2–4 per wave, gap ≥ 5, first appearance
+    wave 15. 70 → 71 tests.
+  - **Verified**: typecheck + 71 tests + build + full smoke (25/25, `kills
+    happened`, 0 console errors) + new `scripts/verify-elite.mjs` (Playwright,
+    12/12): stats in the live game, skinned path in use, 14-bone robot rig,
+    bones animate between frames (wheel quaternion Δ≈1.74, head bob), enemy
+    walks, no model load failures. Screenshot: `verify-elite-robot.png`.
 
 - **#5 (round 2) — runner/tank/armored enemies animated (2026-08-19).**
   The three previously-static enemies now play real limb animation, using free

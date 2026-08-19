@@ -144,10 +144,14 @@ export const ENEMIES: Record<EnemyKind, EnemyDef> = {
   swarm:   { kind: 'swarm', name: 'Swarm', color: '#7bd389', shape: 'triangle', baseHp: 34, speed: 72, armor: 0, armorType: 'flat', armorPct: 0, regen: 0, regenDelay: 0, reward: 5, score: 6, radius: 8, damageToBase: 1 },
   armored: { kind: 'armored', name: 'Armored', color: '#8fa3bd', shape: 'hex', baseHp: 220, speed: 46, armor: 6, armorType: 'flat', armorPct: 0, regen: 0, regenDelay: 0, reward: 24, score: 22, radius: 13, damageToBase: 2 },
   regen:   { kind: 'regen', name: 'Regenerator', color: '#b06bff', shape: 'blob', baseHp: 180, speed: 50, armor: 0, armorType: 'flat', armorPct: 0, regen: 26, regenDelay: 2.2, reward: 22, score: 20, radius: 12, damageToBase: 2 },
+  // Elite boss: a mysterious mechanical Sentinel that rolls through the deep
+  // forest in the late game. Toughest enemy — more HP than the tank, slower
+  // and more deliberate, plated (flat armor), heavy base damage, big reward.
+  elite:   { kind: 'elite', name: 'Sentinel', color: '#53d6e0', shape: 'hex', baseHp: 720, speed: 30, armor: 8, armorType: 'flat', armorPct: 0, regen: 0, regenDelay: 0, reward: 60, score: 80, radius: 16, damageToBase: 4 },
 };
 
 /** Debug-spawn order (2D `ne`). */
-export const ENEMY_ORDER: EnemyKind[] = ['basic', 'runner', 'tank', 'swarm', 'armored', 'regen'];
+export const ENEMY_ORDER: EnemyKind[] = ['basic', 'runner', 'tank', 'swarm', 'armored', 'regen', 'elite'];
 
 // -------------------------------------------------------------------- waves
 
@@ -169,12 +173,15 @@ export const WAVES: WaveGroup[][] = [
   [{ kind: 'tank', count: 6, gap: 2, delay: 0 }, { kind: 'armored', count: 8, gap: 1.1, delay: 4 }, { kind: 'runner', count: 14, gap: 0.35, delay: 8 }],
   [{ kind: 'swarm', count: 40, gap: 0.22, delay: 0 }, { kind: 'regen', count: 6, gap: 1.5, delay: 6 }],
   [{ kind: 'armored', count: 12, gap: 0.9, delay: 0 }, { kind: 'tank', count: 5, gap: 2.2, delay: 5 }, { kind: 'runner', count: 16, gap: 0.3, delay: 10 }],
-  [{ kind: 'regen', count: 12, gap: 1.2, delay: 0 }, { kind: 'tank', count: 6, gap: 1.8, delay: 4 }, { kind: 'swarm', count: 30, gap: 0.25, delay: 8 }],
+  // Waves 15+ : the Sentinel (elite) starts surfacing from the deep forest —
+  // a rare, heavily armored boss, always spaced far apart so towers can focus
+  // fire, with the final wave fielding the largest group.
+  [{ kind: 'regen', count: 12, gap: 1.2, delay: 0 }, { kind: 'tank', count: 6, gap: 1.8, delay: 4 }, { kind: 'swarm', count: 30, gap: 0.25, delay: 8 }, { kind: 'elite', count: 2, gap: 8, delay: 14 }],
   [{ kind: 'armored', count: 14, gap: 0.8, delay: 0 }, { kind: 'runner', count: 24, gap: 0.25, delay: 5 }, { kind: 'regen', count: 8, gap: 1.2, delay: 10 }],
-  [{ kind: 'tank', count: 10, gap: 1.5, delay: 0 }, { kind: 'armored', count: 12, gap: 0.8, delay: 5 }, { kind: 'swarm', count: 34, gap: 0.22, delay: 10 }],
+  [{ kind: 'tank', count: 10, gap: 1.5, delay: 0 }, { kind: 'armored', count: 12, gap: 0.8, delay: 5 }, { kind: 'swarm', count: 34, gap: 0.22, delay: 10 }, { kind: 'elite', count: 3, gap: 7, delay: 12 }],
   [{ kind: 'regen', count: 16, gap: 1, delay: 0 }, { kind: 'tank', count: 8, gap: 1.5, delay: 5 }, { kind: 'runner', count: 26, gap: 0.22, delay: 10 }],
-  [{ kind: 'armored', count: 18, gap: 0.7, delay: 0 }, { kind: 'tank', count: 10, gap: 1.3, delay: 5 }, { kind: 'regen', count: 12, gap: 1, delay: 10 }, { kind: 'swarm', count: 40, gap: 0.2, delay: 14 }],
-  [{ kind: 'tank', count: 14, gap: 1.2, delay: 0 }, { kind: 'armored', count: 20, gap: 0.6, delay: 5 }, { kind: 'regen', count: 16, gap: 0.9, delay: 10 }, { kind: 'runner', count: 30, gap: 0.2, delay: 15 }, { kind: 'swarm', count: 50, gap: 0.18, delay: 20 }],
+  [{ kind: 'armored', count: 18, gap: 0.7, delay: 0 }, { kind: 'tank', count: 10, gap: 1.3, delay: 5 }, { kind: 'regen', count: 12, gap: 1, delay: 10 }, { kind: 'swarm', count: 40, gap: 0.2, delay: 14 }, { kind: 'elite', count: 3, gap: 7, delay: 12 }],
+  [{ kind: 'tank', count: 14, gap: 1.2, delay: 0 }, { kind: 'armored', count: 20, gap: 0.6, delay: 5 }, { kind: 'regen', count: 16, gap: 0.9, delay: 10 }, { kind: 'runner', count: 30, gap: 0.2, delay: 15 }, { kind: 'swarm', count: 50, gap: 0.18, delay: 20 }, { kind: 'elite', count: 4, gap: 6, delay: 18 }],
 ];
 
 export const TOTAL_WAVES = WAVES.length;
