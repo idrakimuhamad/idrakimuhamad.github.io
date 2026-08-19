@@ -1,7 +1,12 @@
 // Input: raycast picking onto the ground plane, click/tap place/select,
+// drag-pan (left-drag past the tap threshold, or middle-mouse drag),
 // right-click cancel, cursor-anchored scroll zoom, two-finger pinch zoom +
 // pan, and hotkeys (Q/W/E/R/T, 1/2/3, Space = start wave, Esc = pause/close,
 // D = debug). Port of 2D `We` with 3D picking + touch support.
+//
+// Drag-pan vs click: a left press that moves more than TAP_MAX_MOVE (12px)
+// before release becomes a PAN and cancels the click/tap, so quick clicks
+// still place towers / select while drags move the view focus anywhere.
 
 import * as THREE from 'three';
 import { COLS, ROWS, TOWER_ORDER } from '../core/defs';
@@ -19,9 +24,11 @@ export class Input {
   private readonly ndc = new THREE.Vector2();
   private readonly hit = new THREE.Vector3();
   /** Active pointers (mouse and/or touch), for pinch + tap detection. */
-  private readonly pointers = new Map<number, { x: number; y: number }>();
+  private readonly pointers = new Map<number, { x: number; y: number; type: string; button: number }>();
   private pinchPrev: { dist: number; ndc: THREE.Vector2 } | null = null;
   private tapInfo: { x: number; y: number; t: number; id: number } | null = null;
+  /** Active drag-pan (left past the tap threshold, or middle-mouse). */
+  private dragPan: { id: number; x: number; y: number } | null = null;
 
   constructor(
     private readonly game: Game,
@@ -100,10 +107,11 @@ export class Input {
     const g = this.game;
 
     const onPointerDown = (e: PointerEvent) => {
-      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType, button: e.button });
       if (this.pointers.size === 2) {
-        // Two fingers down: pinch/pan mode; cancel any pending tap.
+        // Two fingers down: pinch/pan mode; cancel any pending tap or drag.
         this.tapInfo = null;
+        this.dragPan = null;
         const [a, b] = [...this.pointers.values()];
         this.pinchPrev = {
           dist: Math.hypot(a.x - b.x, a.y - b.y),
@@ -111,12 +119,19 @@ export class Input {
         };
       } else if (this.pointers.size === 1) {
         this.tapInfo = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId };
+        // Middle-mouse drag is an explicit pan (no tap threshold).
+        if (e.pointerType === 'mouse' && e.button === 1) {
+          e.preventDefault(); // stop the browser's middle-click autoscroll
+          this.dragPan = { id: e.pointerId, x: e.clientX, y: e.clientY };
+        }
       }
     };
 
     const onPointerMove = (e: PointerEvent) => {
-      if (this.pointers.has(e.pointerId)) {
-        this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const prev = this.pointers.get(e.pointerId);
+      if (prev) {
+        prev.x = e.clientX;
+        prev.y = e.clientY;
       }
       if (this.pointers.size === 2 && this.pinchPrev) {
         const [a, b] = [...this.pointers.values()];
@@ -133,12 +148,32 @@ export class Input {
         };
         return;
       }
+      // Drag-pan: middle-mouse pans immediately; left-mouse starts panning
+      // once the press has moved past the tap threshold (a quick click still
+      // places/selects — see onPointerEnd). The ground under the cursor
+      // follows the cursor 1:1 (Camera3D.panBy).
+      const dp = this.dragPan;
+      if (dp && dp.id === e.pointerId) {
+        const ndc = this.toNdc(e.clientX, e.clientY);
+        if (ndc) this.renderer.panBy(e.clientX - dp.x, e.clientY - dp.y, ndc);
+        dp.x = e.clientX;
+        dp.y = e.clientY;
+      } else if (
+        this.tapInfo && this.tapInfo.id === e.pointerId &&
+        e.pointerType === 'mouse' && (e.buttons & 1) && // left button held
+        // (pointermove reports button=-1 while dragging, so use the
+        //  `buttons` bitmask, not `button`)
+        Math.hypot(e.clientX - this.tapInfo.x, e.clientY - this.tapInfo.y) > TAP_MAX_MOVE
+      ) {
+        this.dragPan = { id: e.pointerId, x: e.clientX, y: e.clientY };
+      }
       this.updateHover(e.clientX, e.clientY);
     };
 
     const onPointerEnd = (e: PointerEvent) => {
       this.pointers.delete(e.pointerId);
       if (this.pointers.size < 2) this.pinchPrev = null;
+      if (this.dragPan?.id === e.pointerId) this.dragPan = null;
       const tap = this.tapInfo;
       if (tap && tap.id === e.pointerId && this.pointers.size === 0) {
         const moved = Math.hypot(e.clientX - tap.x, e.clientY - tap.y);
@@ -152,6 +187,16 @@ export class Input {
     const onLeave = () => {
       g.mouse.inside = false;
       g.hoverCell = null;
+      // The mouse may have been released outside the canvas (no pointerup
+      // will arrive): drop stuck mouse pointer state so the next click
+      // starts clean (no phantom pinch, no stuck drag-pan).
+      for (const [id, p] of [...this.pointers]) {
+        if (p.type !== 'mouse') continue;
+        this.pointers.delete(id);
+        if (this.dragPan?.id === id) this.dragPan = null;
+        if (this.tapInfo?.id === id) this.tapInfo = null;
+      }
+      if (this.pointers.size < 2) this.pinchPrev = null;
     };
 
     const onContext = (e: MouseEvent) => {

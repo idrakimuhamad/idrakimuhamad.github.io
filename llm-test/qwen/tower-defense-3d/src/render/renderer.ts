@@ -161,6 +161,7 @@ export class Renderer {
     if (w === 0 || h === 0) return;
     this.gl.setSize(w, h, false);
     this.composer.setSize(w, h);
+    this.camera3d.setViewport(w, h);
     this.camera3d.setAspect(w / h);
     this.syncFog();
   }
@@ -187,6 +188,11 @@ export class Renderer {
   /** Pinch zoom: scale distance by `factor`, anchored at `ndc`. */
   zoomScale(factor: number, ndc: THREE.Vector2): void {
     this.camera3d.zoomScale(factor, ndc);
+  }
+
+  /** Drag-pan by a screen delta (CSS px), anchored at the cursor's `ndc`. */
+  panBy(dxPx: number, dyPx: number, ndc: THREE.Vector2): void {
+    this.camera3d.panBy(dxPx, dyPx, ndc);
   }
 
   /** Reset to the default view (whole map, centered). */
