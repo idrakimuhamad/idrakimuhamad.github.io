@@ -172,12 +172,28 @@ function normalize(scene: THREE.Object3D, cfg: ModelConfig): THREE.Group {
     if (mesh.isMesh) {
       mesh.castShadow = true;
       mesh.receiveShadow = false;
+      if ((o as THREE.SkinnedMesh).isSkinnedMesh) {
+        // Animated skinned meshes: the rest-pose bounding sphere doesn't
+        // cover the walk cycle, so let the renderer skip frustum culling
+        // (a few dozen draw calls — negligible).
+        mesh.frustumCulled = false;
+      }
     }
   });
 
   // Flip upside-down exports upright BEFORE measuring (a 180° X rotation
   // preserves extents, so it doesn't affect the scale/centering math).
   if (cfg.flip) scene.rotation.x = Math.PI;
+  // Update world matrices BEFORE measuring. SkinnedMesh.bindMatrixInverse
+  // (attached bind mode) is only (re)computed in updateMatrixWorld; on a
+  // freshly parsed GLTF it is still the identity. Box3.setFromObject uses
+  // the SkinnedMesh's CPU-skinned object-level boundingBox, which with a
+  // stale identity bindMatrixInverse comes out in the wrong space — the
+  // mesh node's scale ends up applied twice (once by the skinning math,
+  // once by expandByObject's matrixWorld), inflating the measured size by
+  // ~meshScale and making the normalization scale that many times too
+  // small. Result: skinned enemies rendered as sub-pixel dots.
+  scene.updateMatrixWorld(true);
   _box.setFromObject(scene);
   _size.set(0, 0, 0);
   _box.getSize(_size);
