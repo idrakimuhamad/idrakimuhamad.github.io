@@ -95,10 +95,13 @@ const CONFIG: Record<ModelKey, ModelConfig> = {
   tower_frost: { url: towerFrostUrl, scale: TOWER_SCALE },
   tower_missile: { url: towerMissileUrl, scale: TOWER_SCALE },
   enemy_basic: { url: enemyBasicUrl, scale: ENEMY_SCALE },
-  enemy_runner: { url: enemyRunnerUrl, scale: ENEMY_SCALE },
-  enemy_tank: { url: enemyTankUrl, scale: ENEMY_SCALE },
+  // The Quaternius horse/skeleton/knight all face +Z at rest (measured from
+  // head/torso vs. hips, foot-toe direction, and the run-cycle stride), so
+  // they need the same +90deg facing offset as the cannon barrel.
+  enemy_runner: { url: enemyRunnerUrl, scale: ENEMY_SCALE, facing: Math.PI / 2 },
+  enemy_tank: { url: enemyTankUrl, scale: ENEMY_SCALE, facing: Math.PI / 2 },
   enemy_swarm: { url: enemySwarmUrl, scale: ENEMY_SCALE, yOffset: 0.12 },
-  enemy_armored: { url: enemyArmoredUrl, scale: ENEMY_SCALE },
+  enemy_armored: { url: enemyArmoredUrl, scale: ENEMY_SCALE, facing: Math.PI / 2 },
   enemy_regen: { url: enemyRegenUrl, scale: ENEMY_SCALE },
   base: { url: baseUrl, scale: 1.55 },
   rock: { url: rockUrl, scale: 0.6 },

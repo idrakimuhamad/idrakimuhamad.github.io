@@ -7,8 +7,9 @@
 //     procedural bob is baked into the instance matrix so enemies read as
 //     "walking" rather than sliding. The swarm (bat) stays instanced: 50
 //     concurrent bats × 5 materials would be ~250 draw calls if skinned.
-//   * SKINNED (animated kinds — basic goblin, regen slime, whose GLBs keep a
-//     walk clip, item #5): a lazily-grown pool of per-enemy SkinnedMeshes,
+//   * SKINNED (animated kinds — basic goblin, regen slime, runner horse,
+//     tank skeleton, armored knight; their GLBs keep a walk clip, item #5):
+//     a lazily-grown pool of per-enemy SkinnedMeshes,
 //     each with its own AnimationMixer playing the limb animation at an
 //     independent phase. This is the real limb animation the instanced path
 //     can't do. The pool grows on demand (high-water mark) and is indexed the
@@ -46,8 +47,11 @@ const KINDS: EnemyKind[] = ['basic', 'runner', 'tank', 'swarm', 'armored', 'rege
  * is deliberately NOT here — it's a 50-count swarm and must stay instanced.
  */
 const ANIMATED_CLIP: Partial<Record<EnemyKind, string>> = {
-  basic: 'Walk',
-  regen: 'Walk',
+  basic: 'Walk',       // Goblin   -> "...|Walk"
+  regen: 'Walk',       // Slime    -> "Armature|Slime_Walk"
+  runner: 'Run',       // Horse    -> "Armature|Run" (gallop)
+  tank: 'Running',     // Skeleton -> "SkeletonArmature|Skeleton_Running"
+  armored: 'Walking',  // Knight   -> "HumanArmature|Walking"
 };
 // Walk-cycle baseline: the basic enemy's world speed. Faster kinds animate
 // proportionally faster so feet track the on-screen movement.

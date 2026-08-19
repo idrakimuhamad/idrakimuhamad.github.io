@@ -55,8 +55,11 @@ const SIMPLIFY = {
 // (The swarm/Bat has a fly clip but is a 50-count swarm, so it stays baked
 // static + instanced — a skinned swarm would be ~250 draw calls.)
 const KEEP_ANIM = {
-  'enemy_basic.glb': 'Walk',       // Goblin  -> "...|Walk"
-  'enemy_regen.glb': 'Slime_Walk', // Slime   -> "Armature|Slime_Walk"
+  'enemy_basic.glb': 'Walk',        // Goblin  -> "...|Walk"
+  'enemy_regen.glb': 'Slime_Walk',  // Slime   -> "Armature|Slime_Walk"
+  'enemy_runner.glb': 'Run',        // Horse   -> "Armature|Run" (gallop)
+  'enemy_tank.glb': 'Running',      // Skeleton -> "SkeletonArmature|Skeleton_Running"
+  'enemy_armored.glb': 'Walking',   // Knight  -> "HumanArmature|Walking"
 };
 
 let totalIn = 0, totalOut = 0;

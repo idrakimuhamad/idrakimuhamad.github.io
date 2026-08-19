@@ -38,13 +38,13 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done
 
 ## Nice to have
 
-- [x] **5. Enemy limb animation.** Enemies with a walk clip (basic Goblin,
-      regen Slime) now play real skeletal walk animation via per-enemy
-      `SkinnedMesh` + `AnimationMixer` instead of sliding. The other kinds
-      (Wolf/Ogre/Bat/Knight) have no walk clip in their CC0 models — or are a
-      50-count swarm that must stay instanced — so they keep the instanced path
-      with a procedural bob. Full set via the KayKit Character Animations
-      drop-in (see CREDITS.md).
+- [x] **5. Enemy limb animation.** Five of six enemy kinds (basic Goblin,
+      regen Slime, runner Horse, tank Skeleton, armored Knight) now play real
+      skeletal walk/gallop animation via per-enemy `SkinnedMesh` +
+      `AnimationMixer` instead of sliding. Only the swarm (Bat) keeps the
+      instanced path with a procedural bob — it's a 50-count swarm and a
+      skinned version would be ~250 draw calls. The KayKit Character Animations
+      drop-in (see CREDITS.md) remains available for higher-fidelity clips.
 - [ ] **6. Futuristic asset theme.** Replace the medieval Poly Pizza
       towers/enemies with futuristic models that match each weapon type
       (cannon / MG / sniper / frost / missile). CC0 sources TBD (Poly Pizza
@@ -61,6 +61,44 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done
       the paid KayKit Adventurers GLBs drop in via the steps in CREDITS.md.
 
 ## Log
+
+- **#5 (round 2) — runner/tank/armored enemies animated (2026-08-19).**
+  The three previously-static enemies now play real limb animation, using free
+  CC0 animated models from Quaternius's itch.io packs (the Poly Pizza wolf and
+  ogre had no usable clips; the paid KayKit packs remain the drop-in upgrade):
+  - **runner → Horse** ([Low Poly Animated Animals](https://quaternius.itch.io/lowpoly-animated-animals),
+    `Run` gallop, 0.833 s — the pack has no wolf; the horse is the only
+    wolf-like quadruped with a run clip), **tank → Skeleton** ([Low Poly
+    Animated Monsters](https://quaternius.itch.io/lowpoly-animated-monsters),
+    `Skeleton_Running`, 1.0 s — the only monster with a ground locomotion
+    clip; the Dragon only flies), **armored → Knight** ([Low Poly Animated
+    Knight](https://quaternius.itch.io/lowpoly-animated-knight), `Walking`,
+    1.25 s). All three clips have zero root motion (pure joint articulation),
+    which is exactly what the in-place skinned path needs.
+  - **Conversion** (`scripts/fbx-to-glb.mjs`, new): the packs ship FBX, not
+    GLB. The script loads the FBX with three.js `FBXLoader`, rebuilds each
+    skinned mesh as one de-indexed primitive per material (the raw FBX carries
+    45–73 tiny material groups per mesh, which `GLTFExporter` would turn into
+    45–73 draw calls per enemy), drops the horse's all-white vertex colors,
+    keeps only the one clip the game plays, and exports a GLB (Node needs a
+    small `FileReader` polyfill for `GLTFExporter`). Facing was measured per
+    model (head/torso vs. hips, foot-toe direction, run-cycle stride): all
+    three face +Z at rest, so `models.ts` gives each the same `facing: π/2`
+    offset as the cannon barrel. No Blender required.
+  - **Pipeline** (`scripts/compress-assets.mjs`): the three new GLBs join
+    `KEEP_ANIM` (skin + one clip kept, rest stripped; no decimation needed —
+    690/1810/956 tris). Compressed sizes: runner 192→59 KB, tank 298→35 KB,
+    armored 267→70 KB. Total payload 1.2 → 1.34 MB.
+  - **`enemies3d.ts`**: `ANIMATED_CLIP` gains `runner: 'Run'`,
+    `tank: 'Running'`, `armored: 'Walking'` — the existing skinned pool picks
+    them up with no other changes (phase-offset, rate-scaled to on-screen
+    speed, per-instance tinting all reuse the goblin/slime path).
+  - **Performance.** Worst wave (14): 30 runners × 2 prims + 14 tanks + 20
+    armored × 3 prims + 16 regen = ~150 skinned draw calls at peak, each a
+    small mesh (≤1810 tris) — the same order of magnitude the instanced path
+    already implied per kind, and far under the ~250-call ceiling that keeps
+    the swarm instanced. Verified: typecheck + 70 tests + build + full smoke
+    (25/25, `kills happened` green, 0 console errors).
 
 - **#5 Enemy limb animation + #9 Adventurer characters — done (2026-08-19).**
   - KayKit (Adventurers + Character Animations) is paid and its GLBs aren't

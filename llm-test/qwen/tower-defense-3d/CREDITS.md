@@ -1,9 +1,10 @@
 # Asset Credits — Tower Defense 3D
 
-All 3D models in this game are **CC0 / Public Domain** and were downloaded
-from [Poly Pizza](https://poly.pizza) (a curated catalogue of CC0 3D models).
-Each model is freely usable with no attribution required; credit is given
-here as a courtesy and for provenance.
+All 3D models in this game are **CC0 / Public Domain**. Most were downloaded
+from [Poly Pizza](https://poly.pizza) (a curated catalogue of CC0 3D models);
+the three animated quadruped/humanoid enemies come from Quaternius's free
+itch.io packs (see the model table). Each model is freely usable with no
+attribution required; credit is given here as a courtesy and for provenance.
 
 ## Compression
 
@@ -19,22 +20,28 @@ Every model is compressed before shipping with
   scene light enough to run at 4× speed on weak GPUs.
 
 The runtime decodes Draco via three.js's `DRACOLoader` (WASM decoder shipped
-in `libs/draco/`). The **total compressed asset payload is ~1.2 MB** —
+in `libs/draco/`). The **total compressed asset payload is ~1.3 MB** —
 well under the 15 MB budget set in the plan. (KTX2 was considered but
 requires an external transcoder that isn't available in the glTF-Transform
 v4 npm packages; WebP + Draco is the robust, dependency-light choice.)
 
-**Enemy rigs.** Most enemies are **baked to a static mesh** at build time:
-their skinned rig is stripped and they render in bind pose, rotated to face
-their movement (the wolf alone carried 51 joints + 24 clips → 964 KB down to
-13 KB). Two enemies are the exception — the **basic (Goblin)** and **regen
-(Slime)** keep their skin + a single walk clip so they play real limb
-animation (items #5/#9). The swarm (Bat) has a fly clip but is a 50-count
-swarm, so it stays instanced (a skinned swarm would be ~250 draw calls).
+**Enemy rigs.** Five of the six enemy kinds keep their skin + a single
+walk/gallop clip and play real limb animation (items #5/#9): **basic
+(Goblin)**, **regen (Slime)**, **runner (Horse)**, **tank (Skeleton)** and
+**armored (Knight)**. The swarm (Bat) is the exception — it has a fly clip
+but is a 50-count swarm, so it stays baked static + instanced (a skinned
+swarm would be ~250 draw calls). The Quaternius itch.io packs ship FBX
+(Blender) rather than GLB, so `scripts/fbx-to-glb.mjs` converts them: it
+loads the FBX with three.js's `FBXLoader`, rebuilds the geometry as one
+primitive per material (the raw FBX carries dozens of tiny material groups
+that would explode the draw-call count), keeps only the one clip the game
+plays, and exports a GLB with `GLTFExporter`. The flat-color materials
+(Phong) are exported as PBR standard materials; the models carry no
+textures.
 
 ## Models
 
-| In-game role | Model | Author | License | Source (GLB) |
+| In-game role | Model | Author | License | Source |
 |---|---|---|---|---|
 | Cannon tower | Cannon | Quaternius | CC0 | [static.poly.pizza/6d76c733…](https://static.poly.pizza/6d76c733-c77c-46f5-9d4f-af847d4052b3.glb) |
 | Machine-Gun tower | Watch Tower | Quaternius | CC0 | [static.poly.pizza/af1eb6e4…](https://static.poly.pizza/af1eb6e4-a1b9-415f-bb4d-6098c4a70b40.glb) |
@@ -42,10 +49,10 @@ swarm, so it stays instanced (a skinned swarm would be ~250 draw calls).
 | Frost tower | Crystal | iPoly3D | CC0 | [static.poly.pizza/75211364…](https://static.poly.pizza/75211364-db9b-4004-8e35-18031f096da1.glb) |
 | Missile tower | Turret Cannon | Quaternius | CC0 | [static.poly.pizza/aaf0aaa7…](https://static.poly.pizza/aaf0aaa7-c244-430a-908b-2ac57567d81c.glb) |
 | Basic enemy | Goblin *(animated)* | Quaternius | CC0 | [static.poly.pizza/54e0fd61…](https://static.poly.pizza/54e0fd61-6898-4b17-b039-8fa656d02954.glb) |
-| Runner enemy | Wolf | Quaternius | CC0 | [static.poly.pizza/f1d12388…](https://static.poly.pizza/f1d12388-e39b-4157-b32a-646a1d089fc4.glb) |
-| Tank enemy | Ogre | joney_lol | CC0 | [static.poly.pizza/1ba94998…](https://static.poly.pizza/1ba94998-1534-441e-a5f7-e51ce167ecc0.glb) |
+| Runner enemy | Horse *(animated, gallop)* | Quaternius | CC0 | [itch.io: Low Poly Animated Animals](https://quaternius.itch.io/lowpoly-animated-animals) |
+| Tank enemy | Skeleton *(animated, run)* | Quaternius | CC0 | [itch.io: Low Poly Animated Monsters](https://quaternius.itch.io/lowpoly-animated-monsters) |
 | Swarm enemy | Bat | Quaternius | CC0 | [static.poly.pizza/4ae13ae9…](https://static.poly.pizza/4ae13ae9-c257-41ed-86b5-1b4760924ebc.glb) |
-| Armored enemy | Knight | Dawid2K | CC0 | [static.poly.pizza/5aef0a90…](https://static.poly.pizza/5aef0a90-a166-4024-b3bb-ca6ad8c733f3.glb) |
+| Armored enemy | Knight *(animated, walk)* | Quaternius | CC0 | [itch.io: Low Poly Animated Knight](https://quaternius.itch.io/lowpoly-animated-knight) |
 | Regen enemy | Slime *(animated)* | Quaternius | CC0 | [static.poly.pizza/195565b4…](https://static.poly.pizza/195565b4-842a-44e9-a59a-5ebb1d133255.glb) |
 | Player base | Castle | Quaternius | CC0 | [static.poly.pizza/22b576c3…](https://static.poly.pizza/22b576c3-24c2-45c4-a89c-b088901c3695.glb) |
 | Rock obstacle | Rock | Quaternius | CC0 | [static.poly.pizza/87d3dfd2…](https://static.poly.pizza/87d3dfd2-de47-4b03-b9f1-4c84c2a605b0.glb) |
@@ -107,4 +114,6 @@ so the swap is a drop-in with no code changes beyond the clip-name substrings.
 
 CC0 1.0 Universal — the authors have dedicated these works to the public
 domain. You may use, modify, and redistribute them for any purpose, without
-attribution. See [Poly Pizza](https://poly.pizza) for the full catalogue.
+attribution. See [Poly Pizza](https://poly.pizza) for the full catalogue and
+[Quaternius's itch.io page](https://quaternius.itch.io/) for the animated
+character packs.
