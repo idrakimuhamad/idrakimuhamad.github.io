@@ -12,9 +12,14 @@ Every model is compressed before shipping with
 
 - **Draco** (`KHR_draco_mesh_compression`) for geometry, and
 - **WebP** for embedded textures (browser-native, no runtime transcoder).
+- **Mesh decimation** (meshoptimizer, via `simplifyPrimitive`) for the large
+  static environment meshes (trees + props). The forest is small on screen and
+  low-poly is the aesthetic, so these are reduced to a few hundred tris each
+  before compression — this is what keeps the whole scene light enough to run
+  at 4× speed on weak GPUs.
 
 The runtime decodes Draco via three.js's `DRACOLoader` (WASM decoder shipped
-in `libs/draco/`). The **total compressed asset payload is ~0.29 MB** —
+in `libs/draco/`). The **total compressed asset payload is ~1.2 MB** —
 well under the 15 MB budget set in the plan. (KTX2 was considered but
 requires an external transcoder that isn't available in the glTF-Transform
 v4 npm packages; WebP + Draco is the robust, dependency-light choice.)
@@ -41,6 +46,22 @@ pose — so the rig was flattened away, taking the model from 964 KB to 13 KB.
 | Regen enemy | Slime | Quaternius | CC0 | [static.poly.pizza/195565b4…](https://static.poly.pizza/195565b4-842a-44e9-a59a-5ebb1d133255.glb) |
 | Player base | Castle | Quaternius | CC0 | [static.poly.pizza/22b576c3…](https://static.poly.pizza/22b576c3-24c2-45c4-a89c-b088901c3695.glb) |
 | Rock obstacle | Rock | Quaternius | CC0 | [static.poly.pizza/87d3dfd2…](https://static.poly.pizza/87d3dfd2-de47-4b03-b9f1-4c84c2a605b0.glb) |
+
+### Fantasy-forest environment (item #7)
+
+The forest border, pond-edge trees, and undergrowth use Quaternius CC0
+environment models (same author as the towers/enemies above, same low-poly
+style). These are the CC0 stand-ins for the paid KayKit Forest pack — see
+`enhancement.md` for the drop-in steps for the real KayKit GLBs.
+
+| In-game role | Model | Author | License |
+|---|---|---|---|
+| Deciduous trees (×5 variants) | Normal Tree pack | Quaternius | CC0 |
+| Pine trees (×5) | Pine 1–5 | Quaternius | CC0 |
+| Undergrowth bushes (×4) | Bush (large / small / cluster) | Quaternius | CC0 |
+| Mushrooms (×2) | Mushroom | Quaternius | CC0 |
+| Tree stump | Tree Stump (moss) | Quaternius | CC0 |
+| Extra boulder | Environment Rock | Quaternius | CC0 |
 
 ## Procedural (no external asset)
 

@@ -25,6 +25,17 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done
       compact HUD/build bar), tap to place/select, pinch to zoom,
       `touch-action: none`, no accidental page zoom/scroll.
 
+## Theme decision (final, 2026-08-18)
+
+- **Theme: FANTASY FOREST.** Environment per #7 (trees, ground, rocks); characters
+  per #9 (animated humanoids for enemies). #6 (futuristic) is dropped.
+- **Grid: SQUARE stays.** #8 (hexagonal grid) is a **no-go** — dropped, not starting.
+- Note: the KayKit packs (Forest, Adventurers) are paid itch.io assets; the
+  licensed GLBs are not available in this environment. The work below ships the
+  full themed environment + animated-character pipeline with CC0 stand-ins in
+  the same low-poly style, and documents the exact drop-in steps for the real
+  KayKit GLBs (see CREDITS.md).
+
 ## Nice to have
 
 - [ ] **5. Enemy limb animation.** Current GLTF enemies are static meshes that
@@ -35,18 +46,40 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done
       towers/enemies with futuristic models that match each weapon type
       (cannon / MG / sniper / frost / missile). CC0 sources TBD (Poly Pizza
       sci-fi, Kenney, Quaternius).
-- [ ] **7. KayKit Forest world assets** (kaylousberg.itch.io/kaykit-forest)
-      for the environment (trees, ground, rocks). Conflicts with #6's
-      futuristic direction — pick one theme.
-- [ ] **8. Hexagonal grid** (kaykit-medieval-hexagon style). BIG change:
-      rework A* for hex neighbours, re-lay out the map, and it breaks the
-      bit-identical 2D-parity tests. **Needs a go/no-go decision before
-      starting** — it changes the game's core identity.
-- [ ] **9. KayKit Adventurers characters** (kaylousberg.itch.io/kaykit-adventurers)
-      — animated humanoids for enemies/towers. Overlaps #5/#6/#7; decide
-      theme first (futuristic vs fantasy).
+- [x] **7. Fantasy forest world assets** (KayKit Forest direction,
+      kaylousberg.itch.io/kaykit-forest) for the environment (trees, ground,
+      rocks). Theme conflict with #6 resolved in favor of fantasy forest.
+- [ ] **8. Hexagonal grid** (kaykit-medieval-hexagon style). **NO-GO (dropped,
+      2026-08-18):** user decision — stay on the square grid. Not starting.
+- [ ] **9. Adventurer characters** (KayKit Adventurers direction,
+      kaylousberg.itch.io/kaykit-adventurers) — animated humanoids for
+      enemies (towers keep their weapon turrets). Theme decided: fantasy.
 
 ## Log
+
+- **#7 Fantasy forest world assets — done (2026-08-19).**
+  - KayKit is paid and its GLBs aren't available here, so the environment ships
+    with CC0 Quaternius low-poly stand-ins in the same style (see CREDITS.md
+    for the exact KayKit drop-in steps).
+  - **Assets** (`assets-src/raw` → `assets-src/models`): 6 tree models
+    (`tree_pack` with 5 variants, `pine_1..5`), 4 bushes, 2 mushrooms, a stump,
+    and a second rock. `scripts/compress-assets.mjs` gained a `simplify` step
+    (meshoptimizer) that decimates the large static environment meshes to a few
+    hundred tris each (measured quality floors; `bush_4` is non-manifold and
+    won't simplify, so it's left as-is). Total asset payload 19.3 MB → 1.2 MB.
+  - **`src/render/forest.ts`** (new): a seeded-PRNG forest — a border ring of
+    trees (dense/tall at the far edge, sparse/short at the camera edge),
+    water-edge trees hugging the ponds, and rock-cell undergrowth + scattered
+    props. A procedural low-poly forest shows immediately and is swapped for
+    the GLTF trees once they load (kept forever on load failure).
+  - **Performance.** The whole forest is baked into a handful of merged static
+    meshes: every tree's bark (pack + pines share the same bark texture) merges
+    into ONE mesh, pack leaves into a second, pine leaves into a third — so ~40
+    trees cost **3 draw calls** instead of ~120. Combined with the decimated
+    geometry this keeps the scene light enough for the fixed-step sim to hold
+    4× speed on the SwiftShader smoke rig (kill-window ~17 FPS, first kill
+    ~2.4 s before the smoke check fires). Verified: typecheck + 70 tests +
+    build + full smoke (25/25, `kills happened` green, 0 console errors).
 
 - **Core items 1–4 done.**
   - `camera3d.ts`: view target is now a pan-able point (clamped to the map).

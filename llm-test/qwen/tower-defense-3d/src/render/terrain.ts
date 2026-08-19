@@ -6,8 +6,12 @@ import { BASE, COLS, ROWS, SPAWN, TERRAIN_CELLS } from '../core/defs';
 import type { Game } from '../core/game';
 import { T_BASE, T_ROCK, T_SPAWN, T_WATER } from '../core/types';
 import { modelManager, cloneModel } from './models';
+import { Forest, mulberry32 } from './forest';
 
 const CELL = 32; // texture px per cell
+
+// Seeded so the ground art is identical on every load (stable screenshots).
+const groundRand = mulberry32(0xf00d);
 
 function makeGrassTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
@@ -15,31 +19,69 @@ function makeGrassTexture(): THREE.CanvasTexture {
   canvas.height = ROWS * CELL;
   const ctx = canvas.getContext('2d')!;
 
-  // base grass with per-cell variation
+  // base grass with per-cell variation (deep forest-floor greens)
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       const t = terrainAt(c, r);
       let base: string;
-      if (t === T_WATER) base = '#1d3a4d'; // lake bed under water
-      else if (t === T_ROCK) base = '#4a4a44';
+      if (t === T_WATER) base = '#1c3844'; // lake bed under water
+      else if (t === T_ROCK) base = '#4a463c';
       else if (t === T_SPAWN) base = '#2c2438';
       else if (t === T_BASE) base = '#57534a';
-      else base = (c + r) % 2 === 0 ? '#41583a' : '#3d5437';
+      else base = (c + r) % 2 === 0 ? '#3f5c38' : '#3a5533';
       ctx.fillStyle = base;
       ctx.fillRect(c * CELL, r * CELL, CELL, CELL);
     }
   }
+  // dirt patches: soft radial blobs (forest clearings / worn ground)
+  for (let i = 0; i < 16; i++) {
+    const x = groundRand() * canvas.width;
+    const y = groundRand() * canvas.height;
+    const rad = 24 + groundRand() * 56;
+    const grad = ctx.createRadialGradient(x, y, 0, x, y, rad);
+    grad.addColorStop(0, 'rgba(92,76,54,0.30)');
+    grad.addColorStop(1, 'rgba(92,76,54,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  }
   // speckle noise on grass
   for (let i = 0; i < 2600; i++) {
-    const x = Math.random() * canvas.width;
-    const y = Math.random() * canvas.height;
+    const x = groundRand() * canvas.width;
+    const y = groundRand() * canvas.height;
     const c = Math.floor(x / CELL);
     const r = Math.floor(y / CELL);
     const t = terrainAt(c, r);
     if (t === T_WATER || t === T_ROCK) continue;
-    ctx.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,255,0.045)' : 'rgba(0,0,0,0.06)';
+    ctx.fillStyle = groundRand() < 0.5 ? 'rgba(255,255,255,0.045)' : 'rgba(0,0,0,0.06)';
     ctx.fillRect(x, y, 2, 2);
   }
+  // grass tufts: short bright strokes on grass cells
+  for (let i = 0; i < 340; i++) {
+    const x = groundRand() * canvas.width;
+    const y = groundRand() * canvas.height;
+    const t = terrainAt(Math.floor(x / CELL), Math.floor(y / CELL));
+    if (t === T_WATER || t === T_ROCK) continue;
+    const h = 3 + groundRand() * 4;
+    const lean = (groundRand() - 0.5) * 3;
+    ctx.strokeStyle = `rgba(${90 + groundRand() * 30 | 0}, ${125 + groundRand() * 35 | 0}, ${60 + groundRand() * 25 | 0}, 0.35)`;
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + lean, y - h);
+    ctx.stroke();
+  }
+  // fallen leaves: tiny warm speckles
+  const leafColors = ['#8a6b3a', '#7a5a30', '#6b7a3a', '#8a5a40', '#5f7040'];
+  for (let i = 0; i < 220; i++) {
+    const x = groundRand() * canvas.width;
+    const y = groundRand() * canvas.height;
+    const t = terrainAt(Math.floor(x / CELL), Math.floor(y / CELL));
+    if (t === T_WATER || t === T_ROCK) continue;
+    ctx.fillStyle = leafColors[(groundRand() * leafColors.length) | 0];
+    ctx.globalAlpha = 0.25 + groundRand() * 0.3;
+    ctx.fillRect(x, y, 1.5 + groundRand() * 1.8, 1.5 + groundRand() * 1.8);
+  }
+  ctx.globalAlpha = 1;
   // subtle grid lines
   ctx.strokeStyle = 'rgba(0,0,0,0.14)';
   ctx.lineWidth = 1;
@@ -157,6 +199,8 @@ export class Terrain {
   private hpRing: THREE.Mesh | null = null;
   private hpRingFrac = -1;
   private time = 0;
+  /** Fantasy-forest decor: border trees, water-edge trees, undergrowth. */
+  private readonly forest = new Forest();
 
   constructor() {
     // ground
@@ -412,5 +456,6 @@ export class Terrain {
 
   addTo(scene: THREE.Scene): void {
     scene.add(this.group);
+    scene.add(this.forest.group);
   }
 }

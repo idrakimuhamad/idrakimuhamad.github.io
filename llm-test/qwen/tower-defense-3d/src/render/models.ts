@@ -26,12 +26,33 @@ import enemyArmoredUrl from '../../assets-src/models/enemy_armored.glb?url';
 import enemyRegenUrl from '../../assets-src/models/enemy_regen.glb?url';
 import baseUrl from '../../assets-src/models/base.glb?url';
 import rockUrl from '../../assets-src/models/rock.glb?url';
+import treePackUrl from '../../assets-src/models/tree_pack.glb?url';
+import pine1Url from '../../assets-src/models/pine_1.glb?url';
+import pine2Url from '../../assets-src/models/pine_2.glb?url';
+import pine3Url from '../../assets-src/models/pine_3.glb?url';
+import pine4Url from '../../assets-src/models/pine_4.glb?url';
+import pine5Url from '../../assets-src/models/pine_5.glb?url';
+import rock2Url from '../../assets-src/models/rock_2.glb?url';
+import mushroom1Url from '../../assets-src/models/mushroom_1.glb?url';
+import mushroom2Url from '../../assets-src/models/mushroom_2.glb?url';
+import stumpUrl from '../../assets-src/models/stump.glb?url';
+import bush1Url from '../../assets-src/models/bush_1.glb?url';
+import bush2Url from '../../assets-src/models/bush_2.glb?url';
+import bush3Url from '../../assets-src/models/bush_3.glb?url';
+import bush4Url from '../../assets-src/models/bush_4.glb?url';
 
 export type TowerModelKey =
   | 'tower_cannon' | 'tower_mg' | 'tower_sniper' | 'tower_frost' | 'tower_missile';
 export type EnemyModelKey =
   | 'enemy_basic' | 'enemy_runner' | 'enemy_tank' | 'enemy_swarm' | 'enemy_armored' | 'enemy_regen';
-export type ModelKey = TowerModelKey | EnemyModelKey | 'base' | 'rock';
+export type ModelKey =
+  | TowerModelKey
+  | EnemyModelKey
+  | 'base' | 'rock'
+  // Fantasy-forest environment (item #7)
+  | 'tree_pack' | 'pine_1' | 'pine_2' | 'pine_3' | 'pine_4' | 'pine_5'
+  | 'rock_2' | 'mushroom_1' | 'mushroom_2' | 'stump'
+  | 'bush_1' | 'bush_2' | 'bush_3' | 'bush_4';
 
 export interface NormalizedModel {
   /** Normalized scene: scaled to `scale`, centered in x/z, resting on y=0, shadows on. */
@@ -46,6 +67,12 @@ interface ModelConfig {
   facing?: number;
   /** Extra lift off the ground (e.g. for a flying bat). */
   yOffset?: number;
+  /** Rotate 180° about X before normalizing: some exports hang from y=0
+   *  (trunk/stem extends in -y) instead of standing on it. */
+  flip?: boolean;
+  /** Skip normalization — the consumer owns the raw scene (e.g. the tree
+   *  pack, whose five trees are extracted and normalized per variant). */
+  raw?: boolean;
 }
 
 // Target sizes (world units). Towers fill ~1 cell, enemies are a touch smaller
@@ -73,6 +100,25 @@ const CONFIG: Record<ModelKey, ModelConfig> = {
   enemy_regen: { url: enemyRegenUrl, scale: ENEMY_SCALE },
   base: { url: baseUrl, scale: 1.55 },
   rock: { url: rockUrl, scale: 0.6 },
+  // --- fantasy forest (item #7) -----------------------------------------
+  // The pack holds five normal trees laid out in a row; forest.ts extracts
+  // them as variants, so it loads raw (no whole-pack normalization).
+  tree_pack: { url: treePackUrl, scale: 1, raw: true },
+  // Unit height (max dim = trunk height) so a placement's `scale` is the
+  // final world height, matching the extracted tree_pack variants.
+  pine_1: { url: pine1Url, scale: 1.0 },
+  pine_2: { url: pine2Url, scale: 1.0 },
+  pine_3: { url: pine3Url, scale: 1.0 },
+  pine_4: { url: pine4Url, scale: 1.0 },
+  pine_5: { url: pine5Url, scale: 1.0 },
+  rock_2: { url: rock2Url, scale: 0.5 },
+  mushroom_1: { url: mushroom1Url, scale: 0.28, flip: true },
+  mushroom_2: { url: mushroom2Url, scale: 0.3 },
+  stump: { url: stumpUrl, scale: 0.5, flip: true },
+  bush_1: { url: bush1Url, scale: 0.55 },
+  bush_2: { url: bush2Url, scale: 1.15 }, // 3-bush cluster
+  bush_3: { url: bush3Url, scale: 0.6 },
+  bush_4: { url: bush4Url, scale: 0.5, flip: true },
 };
 
 const ALL_KEYS = Object.keys(CONFIG) as ModelKey[];
@@ -117,6 +163,9 @@ function normalize(scene: THREE.Object3D, cfg: ModelConfig): THREE.Group {
     }
   });
 
+  // Flip upside-down exports upright BEFORE measuring (a 180° X rotation
+  // preserves extents, so it doesn't affect the scale/centering math).
+  if (cfg.flip) scene.rotation.x = Math.PI;
   _box.setFromObject(scene);
   _size.set(0, 0, 0);
   _box.getSize(_size);
@@ -133,6 +182,20 @@ function normalize(scene: THREE.Object3D, cfg: ModelConfig): THREE.Group {
   scene.position.z = -_center.z;
   scene.position.y = -_box.min.y + (cfg.yOffset ?? 0);
 
+  const group = new THREE.Group();
+  group.add(scene);
+  return group;
+}
+
+/** Raw model: no normalization — the consumer (forest.ts) handles it. */
+function wrapRaw(scene: THREE.Object3D): THREE.Group {
+  scene.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (mesh.isMesh) {
+      mesh.castShadow = true;
+      mesh.receiveShadow = false;
+    }
+  });
   const group = new THREE.Group();
   group.add(scene);
   return group;
@@ -199,7 +262,9 @@ export class ModelManager {
   private async doLoad(key: ModelKey): Promise<NormalizedModel> {
     try {
       const scene = await loadGLTF(CONFIG[key].url);
-      const model: NormalizedModel = { object: normalize(scene, CONFIG[key]) };
+      const cfg = CONFIG[key];
+      const object = cfg.raw ? wrapRaw(scene) : normalize(scene, cfg);
+      const model: NormalizedModel = { object };
       this.cache.set(key, model);
       const set = this.listeners.get(key);
       if (set) {
